@@ -1,6 +1,6 @@
 close all
 clear
-
+rng(1000)
 norm=1;
 IntLength=5;
 to_plot=0;
@@ -10,8 +10,10 @@ load('Holter_timings.mat');
 subjData(91)=[]; %have short after (*technical issue)
 
 sex_vec=logical([subjData.sex]);
+
+% subjData=subjData(~sex_vec);
 %%
-for i=1:size(subjData,2)-1
+for i=1:size(subjData,2)
  [before{i},after{i},donation{i},NCbefore{i},NCafter{i},NCdonation{i}]=extract_timings_needle(i,norm, IntLength,subjData);
  %[NCbefore{i},NCafter{i},NCdonation{i}]=NC_analysis(i, IntLength,subjData);
 end
@@ -54,9 +56,9 @@ test_values = test_values(~outlierMask);   % Remove outliers
 %[p_values(i),~,Wstat(i)] = signrank(test_values, retest_values,"method","approximate");
 [~,p_values_ttest(i)] = ttest(test_values, retest_values);
 %%
-sex_vec_clean=sex_vec(~outlierMask);
- [~,p_values_ttest_women(i)] = ttest(test_values(sex_vec_clean), retest_values(sex_vec_clean));
-  [~,p_values_ttest_men(i)] = ttest(test_values(~sex_vec_clean), retest_values(~sex_vec_clean));
+% sex_vec_clean=sex_vec(~outlierMask);
+%  [~,p_values_ttest_women(i)] = ttest(test_values(sex_vec_clean), retest_values(sex_vec_clean));
+%   [~,p_values_ttest_men(i)] = ttest(test_values(~sex_vec_clean), retest_values(~sex_vec_clean));
 
 %%
 if to_plot
@@ -83,7 +85,7 @@ ylabel('After');
         fprintf(['mean+std before and after' num2str(mean(test_values,'omitnan')) '±' num2str(std(test_values,'omitnan')) ',' num2str(mean(retest_values,'omitnan')) '±' num2str(std(retest_values,'omitnan')) '\n'])
 
 end
-
+% 
 
 
 %% big differences
@@ -91,12 +93,19 @@ end
 vals_before=calculate_before_after(before,IntLength);
 [vals_after,vars]=calculate_before_after(after,IntLength);
 
-% A=[vals_before,vals_after];
-% B=[BmeasureResults,AmeasureResults];
-% 
-% AA=struct2table(A);
-% BB=struct2table(B);
-% T=[AA,BB];
+vals_before([42,63,65])=[];
+vals_after([42,63,65])=[];
+
+X=table2array(struct2table([vals_before,vals_after]));
+
+BmeasureResults([42,63,65])=[];
+AmeasureResults([42,63,65])=[];
+x=table2array(struct2table([BmeasureResults,AmeasureResults]));
+x=x(:,[1,4,6,9]);
+
+%X=[X,x]; Adding NC parameters reduce accuracy classification
+X=[X];
+Y=[ones(size(vals_before,2),1);2*ones(size(vals_after,2),1)];
 
 
 fields=fieldnames(vals_after);
@@ -104,9 +113,6 @@ fields=fieldnames(vals_after);
 
 %%
 for i=1:size(fields,1)
-    if i==3 || i==10 || i==22
-        continue
-    end
     currentfield=fields{i};
     test_values = [vals_before(:).(currentfield)];   % Test scores for 3 subjects
 retest_values = [vals_after(:).(currentfield)]; % Retest scores for the same 3 subjects
@@ -119,11 +125,12 @@ test_values = test_values(~outlierMask);   % Remove outliers
 %[p_value24(i),~,Wstat24(i)] = signrank(test_values, retest_values,'method','approximate');
 [~,tp_value24(i),~,tstat24(i)] = ttest2(test_values, retest_values);
 
-sex_vec_clean2=sex_vec(~outlierMask);
- [~,tp_value24_women(i)] = ttest(test_values(sex_vec_clean2), retest_values(sex_vec_clean2));
-  [~,tp_value24_men(i)] = ttest(test_values(~sex_vec_clean2), retest_values(~sex_vec_clean2));
+ sex_vec_clean2=sex_vec(~outlierMask);
+%  [~,tp_value24_women(i)] = ttest(test_values(sex_vec_clean2), retest_values(sex_vec_clean2));
+%   [~,tp_value24_men(i)] = ttest(test_values(~sex_vec_clean2), retest_values(~sex_vec_clean2));
 
 if tp_value24(i)<0.05
+if to_plot
     figure;
 min_=min([test_values,retest_values]);
 max_=max([test_values,retest_values]);
@@ -138,54 +145,108 @@ ylim([min_ max_])
 set(gca,'FontSize',12)
 
 % Format title with p-value
-title(sprintf('%s (ttest p = %.2f)',vars{i},tp_value24(i)));
+title(sprintf('%s (ttest p = %.4f)',vars{i},tp_value24(i)));
 
 % Axis labels and limits
 xlabel('Before');
 ylabel('After');
         end
-                fprintf('%s ttest p = %.2f\n',currentfield, tp_value24(i))
-                      %  fprintf(['mean+std before and after' num2str(mean(test_values,'omitnan')) '±' num2str(std(test_values,'omitnan')) ',' num2str(mean(retest_values,'omitnan')) '±' num2str(std(retest_values,'omitnan')) '\n'])
+                % Descriptives
+    mx = mean(test_values, 'omitnan'); sx = std(test_values, 'omitnan'); nx = numel(test_values);
+    my = mean(retest_values, 'omitnan'); sy = std(retest_values, 'omitnan'); ny = numel(retest_values);
 
+    valid = ~isnan(test_values) & ~isnan(retest_values);
+        x = test_values(valid);
+        y = retest_values(valid);
+        [~,p,~,stats] = ttest(x, y);
+        % Effect size: Cohen's dz for paired (mean diff / SD diff)
+            df = stats.df; tval = stats.tstat;
+varName=currentfield;
+    fprintf('%s: t(%d)=%.2f, p=%.4g]\n', ...
+        varName, df, tval, p);
+    fprintf('   before: %0.3f \xB1 %0.3f (n=%d);  after: %0.3f \xB1 %0.3f (n=%d)\n', ...
+        mx, sx, nx, my, sy, ny);
+                      %  fprintf(['mean+std before and after' num2str(mean(test_values,'omitnan')) '±' num2str(std(test_values,'omitnan')) ',' num2str(mean(retest_values,'omitnan')) '±' num2str(std(retest_values,'omitnan')) '\n'])
+end
 end
 
-save(['test_retest_' num2str(IntLength) '.mat'] ,'vals_before','vals_after','tp_value24');
+%save(['test_retest_' num2str(IntLength) '.mat'] ,'vals_before','vals_after','tp_value24');
 
 %% classification
 
-% vars_to_classA=table2array(struct2table([vals_before_conc,vals_after_conc]));
-% vars_to_classA(:,end+1)=[LIampB_conc,LIampA_conc]';
-% labels=[ones(size(vals_before_conc,2),1);2*ones(size(vals_before_conc,2),1)];
-% vars_to_class2=vars_to_classA(:,c);
-% [~,acc]=fine_knn(vars_to_classA,labels)
-% %load('other_param_class.mat')
-% [~,acc2]=fine_knn(vars_to_class,labels)
-% vars_to_class3=[vars_to_classA,vars_to_class];
-% [~,acc3]=fine_knn(vars_to_class3,labels)
-% vars_to_class=[table2array(struct2table([vals_before,vals_after]))];%,[sex_vec,sex_vec]'
-% %more_vars_to_class=table2array(struct2table([BmeasureResults,AmeasureResults]));
-% %vars_to_class_converged=[vars_to_class,more_vars_to_class];
-% labels=[ones(size(vals_before,2),1);2*ones(size(vals_after,2),1)];
-% 
-% figure;
-% scatter3(vars_to_class(1:94,11),vars_to_class(1:94,16),vars_to_class(1:94,24), 100, 'red', 'filled');
-% hold on
-% scatter3(vars_to_class(95:end,11),vars_to_class(95:end,16),vars_to_class(95:end,24), 100, 'blue', 'filled');
-% xlabel(vars{11})
-% ylabel(vars{16})
-% zlabel(vars{24})
+
+hiddenSize = 14;
+autoenc = trainAutoencoder(X', hiddenSize, ...
+    'MaxEpochs',400, 'L2WeightRegularization',0.001);
+X_train_enc = encode(autoenc, X')';
+
 
 %mrmr_order=fscmrmr(vars_to_class_converged,labels);
 %vars_to_class=[vars_to_class(:,all)]; %,more_vars_to_class(:,[2,5,7])
 % [~,acc]=fine_knn(vars_to_class,labels);
 % [z]=ttest2(vars_to_class(labels==1,:),vars_to_class(labels==2,:));
 % Z=[11,16,24];
-%  %labels(isnan(vars_to_class(1,:)))=[];
+%  %labels(isnan(vars_to_c     lass(1,:)))=[];
 % % vars_to_class(:,isnan(vars_to_class(1,:)))=[];
 % [labels_hat,acc]=L_SVM(vars_to_class(:,z==1),labels);
 % [labels_hat,acc_tree,y_score] = tree(vars_to_class(:,z==1),labels);
-% [labels_hat,acc_tree,y_score] = tree(vars_to_class(:,Z),labels);
-% 
+
+
+classificationSVM = fitcsvm(...
+    X_train_enc, ...
+    Y, ...
+    'KernelFunction', 'linear', ...
+    'PolynomialOrder', [], ...
+    'KernelScale', 'auto', ...
+    'Standardize', true, ...
+     'ClassNames', [1 2], ...
+                   'ScoreTransform', 'none');  % important for ROC);
+
+partitionedModel = crossval(classificationSVM, 'Leaveout','on');
+
+% Compute validation predictions
+[validationPredictions, validationScores] = kfoldPredict(partitionedModel);
+
+acc_autoenc_validationAccuracy = 1 - kfoldLoss(partitionedModel, 'LossFun', 'ClassifError');
+
+% Compute ROC
+% Define the positive class value exactly as in your labels:
+    posClass = 2;  % <-- change if your positive class is, e.g., true/'positive'/categorical('1')
+
+    % Find the score column corresponding to posClass
+    cls = [1,2];            % same order as columns in y_score
+    idx = find(ismember(cls, posClass));  % works for numeric, logical, char, categorical
+
+    if isempty(idx)
+        error('Positive class not found in ClassNames. Check posClass.');
+    end
+
+    % Scores for the positive class
+    posScores = validationScores(:, idx);
+
+    % Find rows with no NaNs in X_train_enc
+validIdx = all(~isnan(X_train_enc), 2);
+
+% Use only valid labels and scores
+validLabels = Y(validIdx);
+
+    % ROC curve & AUC
+    [fpRate, tpRate, ~, AUC] = perfcurve(validLabels, posScores, posClass);
+    fprintf('AUC: %.4f\n', AUC);
+    
+% Plot ROC curve
+figure;
+plot(fpRate, tpRate, 'b-', 'LineWidth', 2); hold on;
+plot([0 1], [0 1], 'k--');
+xlabel('False Positive Rate (1 - Specificity)');
+ylabel('True Positive Rate (Sensitivity)');
+title(sprintf('LOOCV ROC - Coarse Tree (AUC = %.2f)', AUC));
+grid on;
+axis square;
+
+% [trainedClassifier, validationAccuracySVM] = gausianSVM(vars_to_class,labels);
+% [trainedClassifier, validationAccuracyBT] = bagged_tree(vars_to_class,labels);
+
 % cc=vars_to_class(:,zzz(4:13));
 
 % figure
@@ -236,48 +297,6 @@ save(['test_retest_' num2str(IntLength) '.mat'] ,'vals_before','vals_after','tp_
 %     end
 
 
-    function [z_breath_values,vars]=calculate_before_after(before,IntLength)
-
-for i=1:size(before,2)
-%    peaks1 = peaks_from_ts2(before{i});
-%    z_breath_values(i) = calculate_z_1min(peaks1,IntLength);
-Fs= size(before{i},1)/(IntLength*60);
-if Fs<25
-    peaks1 = peaks_from_ts_fs(before{i},Fs);
-
-    plot(before{i})
-    hold on
-    plot([peaks1.PeakLocation],[peaks1.PeakValue],'bo')
-
-    z_breath_values(i) = calculate_z_blood(peaks1);
-else
-     bmObj=breathmetrics(before{i},Fs,'humanAirflow');
- bmObj.estimateAllFeatures();
-
- % Define the variable names as field names in the struct
-variableNames = {...
-    'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', 'AverageInhaleDuration', ...
-    'AverageInhalePauseDuration', 'AverageInhaleVolume', 'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', ...
-    'AveragePeakInspiratoryFlow', 'AverageTidalVolume', 'BreathingRate', 'CoefficientOfVariationOfBreathVolumes', ...
-    'CoefficientOfVariationOfBreathingRate', 'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
-    'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', 'DutyCycleOfExhale', ...
-    'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', 'MinuteVentilation', 'PercentOfBreathsWithExhalePause', ...
-    'PercentOfBreathsWithInhalePause'};
-
-values=[bmObj.secondaryFeatures.values];
-% Assign the values to the struct fields
-for ii = 1:length(variableNames)
-    dataStruct.(variableNames{ii}) = values{ii};
-end
-
- z_breath_values(i)= dataStruct(:);
-end
-end
-
-%vars=bmObj.secondaryFeatures.keys;
-load('vars_names_BM.mat')
-vars=variableNames;
-end
 
 function z_breath_values=calculate_1min_bin(before1,num_bins)
 
@@ -298,19 +317,20 @@ else
 end
 
 for i=1:num_bins
-    if length(before1)<500
-        Fs=6;
-    else
-        Fs=25;
-    end
+ if ismember(i,[42,63,65]) 
+         Fs=6;
+     else
+         Fs=25;
+     end
 if Fs<25
-    peaks1 = peaks_from_ts_fs(binned_data(:,i),Fs);
-
-    plot(before{i})
-    hold on
-    plot([peaks1.PeakLocation],[peaks1.PeakValue],'bo')
-
-    z_breath_values(i) = calculate_z_blood(peaks1);
+    % peaks1 = peaks_from_ts_fs(binned_data(:,i),Fs);
+    % 
+    % plot(before{i})
+    % hold on
+    % plot([peaks1.PeakLocation],[peaks1.PeakValue],'bo')
+    % 
+    % z_breath_values(i) = calculate_z_blood(peaks1);
+    continue
 else
      bmObj=breathmetrics(binned_data(:,i),Fs,'humanAirflow');
  bmObj.estimateAllFeatures();
