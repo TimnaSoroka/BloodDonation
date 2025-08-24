@@ -101,6 +101,7 @@ for i = 1:length(participantKeys)
     
     sbj_idx=find(numericVec==str2double(code));
 
+    % add sex
     S=TBD(sex_idx,sbj_idx);
     if strcmpi(S{:},'זכר')
     subjData(i).sex=0;
@@ -110,6 +111,38 @@ for i = 1:length(participantKeys)
         fprintf('No gender match found for subject ID: %s \n', code)
     end
 
+    % Add donation amount
+    rowName=strcmpi('Pure_Donation_Amount',(TBD(:,1)));
+tmp=TBD(rowName,sbj_idx);
+ subjData(i).Donation_Amount=tmp{:};
+    % Add weight
+    rowName=strcmpi('Weight',(TBD(:,1)));
+    tmp=TBD(rowName,sbj_idx);
+    if isa(tmp{:},'double')
+ subjData(i).Weight=tmp{:};
+    else
+        disp(tmp{:})
+         subjData(i).Weight=nan;
+    end
+     % Add pulse1
+    rowName=strcmpi('Pulse1st',(TBD(:,1)));
+    tmp=TBD(rowName,sbj_idx);
+ subjData(i).Pulse1st=tmp{:};
+
+      % Add pulse2
+    rowName=strcmpi('pulse2nd',(TBD(:,1)));
+    tmp=TBD(rowName,sbj_idx);
+ subjData(i).Pulse1nd=tmp{:};
+
+       % Add Spo1
+    rowName=strcmpi('Spo1st',(TBD(:,1)));
+    tmp=TBD(rowName,sbj_idx);
+ subjData(i).Spo1st=tmp{:};
+
+        % Add Spo2
+    rowName=strcmpi('Spo2nd',(TBD(:,1)));
+    tmp=TBD(rowName,sbj_idx);
+ subjData(i).Spo2nd=tmp{:};
 
     clearvars T fullData
 end
@@ -183,6 +216,8 @@ elseif size(in,1)>1 || size(out,1)>1
                        case '095'
             out=in(2);
                         in=in(1);
+                         case '103'
+            out=out(1)-(20*25);
         otherwise
             disp(comments(in))
                         disp(comments(out))

@@ -1,8 +1,11 @@
+% This code use the men for training and women for testing or fat for training and less fat for testing. FS done using
+% values<0.05 in the man sample.
+
 close all
 clear
-rng(1000)
+rng(50)
 norm=1; %1=80%, 0=50%
-IntLength=5;
+IntLength=5; % 5 is the best
 to_plot=0;
 Fs=25; 
 load('Holter_timings.mat');
@@ -76,7 +79,11 @@ X=[X,x];
 Y=[ones(size(vals_before,2),1);2*ones(size(vals_after,2),1)];
 
 
-sex_vec1=logical([subjData.sex]);
+thresh=mean([subjData.Weight],'omitmissing');
+sex_vec1=([subjData.Weight]<thresh);
+
+% sex_vec1=logical([subjData.sex]);
+
 sex_vec1([42,63,65])=[];
 sex_vec=[sex_vec1,sex_vec1];
 
@@ -88,8 +95,8 @@ Y_test=Y(sex_vec);
 
 %% FS
 n=size(X_train,1)/2;
-for i=1:size(fields,1)
-    currentfield=fields{i};
+for i=1:size(X_train,2)
+    %currentfield=fields{i};
     test_values = X_train(1:n,i);  
 retest_values = X_train(n+1:end,i);
 
@@ -166,7 +173,9 @@ for c = 1:length(classifier_names)
             case 'kNN'
                 mdl = fitcknn(Xtr,Ytr,'NumNeighbors',5);
             case 'DecisionTree'
-                mdl = fitctree(Xtr,Ytr);
+                mdl = fitctree(Xtr,Ytr,    'SplitCriterion', 'gdi', ...
+    'MaxNumSplits', 4, ...
+    'Surrogate', 'off');
             case 'Logistic'
                 mdl = fitclinear(Xtr,Ytr,'Learner','logistic');
         end
@@ -202,7 +211,7 @@ switch best_classifier_name
 end
 
 % Test on held-out test set
-y_pred_test = predict(best_clf, X_test_sel);
+[y_pred_test,y_score] = predict(best_clf, X_test_sel);
 accuracY_test = sum(y_pred_test == Y_test) / length(Y_test);
 cm = confusionmat(Y_test, y_pred_test);
 
@@ -212,18 +221,34 @@ disp(cm);
 disp(['Test Accuracy: ', num2str(accuracY_test)]);
 
 
-%% Compute ROC
-% [fpRate, tpRate, ~, AUC] = perfcurve(labels, y_score, 1);
-% 
-% % Plot ROC curve
-% figure;
-% plot(fpRate, tpRate, 'b-', 'LineWidth', 2); hold on;
-% plot([0 1], [0 1], 'k--');
-% xlabel('False Positive Rate (1 - Specificity)');
-% ylabel('True Positive Rate (Sensitivity)');
-% title(sprintf('LOOCV ROC - Coarse Tree (AUC = %.2f)', AUC));
-% grid on;
-% axis square;
+% Compute ROC
+% Define the positive class value exactly as in your labels:
+    posClass = 2;  % <-- change if your positive class is, e.g., true/'positive'/categorical('1')
+
+    % Find the score column corresponding to posClass
+    cls = best_clf.ClassNames;            % same order as columns in y_score
+    idx = find(ismember(cls, posClass));  % works for numeric, logical, char, categorical
+
+    if isempty(idx)
+        error('Positive class not found in ClassNames. Check posClass.');
+    end
+
+    % Scores for the positive class
+    posScores = y_score(:, idx);
+
+    % ROC curve & AUC
+    [fpRate, tpRate, ~, AUC] = perfcurve(Y_test, posScores, posClass);
+    fprintf('AUC: %.4f\n', AUC);
+    
+% Plot ROC curve
+figure;
+plot(fpRate, tpRate, 'b-', 'LineWidth', 2); hold on;
+plot([0 1], [0 1], 'k--');
+xlabel('False Positive Rate (1 - Specificity)');
+ylabel('True Positive Rate (Sensitivity)');
+title(sprintf('LOOCV ROC - Coarse Tree (AUC = %.2f)', AUC));
+grid on;
+axis square;
 
 
 %% correlations during donation
