@@ -9,6 +9,8 @@ IntLength=5; % 5 is the best
 to_plot=0;
 Fs=25; 
 load('Holter_timings.mat');
+disp_ttests=1;
+
 %%
 subjData(91)=[]; %have short after (*technical issue)
 
@@ -63,7 +65,10 @@ end
 vals_before=calculate_before_after(before,IntLength);
 [vals_after,vars]=calculate_before_after(after,IntLength);
 
-fields=fieldnames(vals_after);
+fields2=fieldnames(vals_after);
+
+fields=[fields;fields2];
+
 
 vals_before([42,63,65])=[];
 vals_after([42,63,65])=[];
@@ -93,33 +98,48 @@ Y_train=Y(~sex_vec);
 X_test=X(sex_vec,:);
 Y_test=Y(sex_vec);
 
-%% FS
-n=size(X_train,1)/2;
-for i=1:size(X_train,2)
-    %currentfield=fields{i};
-    test_values = X_train(1:n,i);  
-retest_values = X_train(n+1:end,i);
-
-[~,tp_value24(i),~,tstat24(i)] = ttest2(test_values, retest_values);
-
-                % Descriptives
+%% Descriptives
+if disp_ttests
+   
+for v=1:size(X,2)
+test_values= X(Y==1,v);
+retest_values = X(Y==2,v);
     mx = mean(test_values, 'omitnan'); sx = std(test_values, 'omitnan'); nx = numel(test_values);
     my = mean(retest_values, 'omitnan'); sy = std(retest_values, 'omitnan'); ny = numel(retest_values);
 
     valid = ~isnan(test_values) & ~isnan(retest_values);
         x = test_values(valid);
         y = retest_values(valid);
-        [~,p,~,stats] = ttest2(x, y);
+        [~,p,~,stats] = ttest(x, y);
         % Effect size: Cohen's dz for paired (mean diff / SD diff)
             df = stats.df; tval = stats.tstat;
-varName=currentfield;
+varName=fields{v};
     fprintf('%s: t(%d)=%.2f, p=%.4g]\n', ...
         varName, df, tval, p);
     fprintf('   before: %0.3f \xB1 %0.3f (n=%d);  after: %0.3f \xB1 %0.3f (n=%d)\n', ...
         mx, sx, nx, my, sy, ny);
-                      %  fprintf(['mean+std before and after' num2str(mean(test_values,'omitnan')) '±' num2str(std(test_values,'omitnan')) ',' num2str(mean(retest_values,'omitnan')) '±' num2str(std(retest_values,'omitnan')) '\n'])
+end  
+end
+%% FS
+n=size(X_train,1)/2;
+for i=1:size(X_train,2)
+    currentfield=fields{i};
+    test_values = X_train(1:n,i);  
+retest_values = X_train(n+1:end,i);
+
+[~,tp_value24(i),~,tstat24(i)] = ttest2(test_values, retest_values);
+      %  fprintf(['mean+std before and after' num2str(mean(test_values,'omitnan')) '±' num2str(std(test_values,'omitnan')) ',' num2str(mean(retest_values,'omitnan')) '±' num2str(std(retest_values,'omitnan')) '\n'])
 
 end
+
+features = fscnca(X_train, Y_train);  % fscnca selects features based on correlation with the target
+[f_v,f_idx]=sort(features.FeatureWeights,'descend');
+[a,idx]=sort(tp_value24);
+
+top_features_idx = tp_value24<0.05; % example, replace with your indices
+
+X_train_sel = X_train(:, top_features_idx);
+X_test_sel  = X_test(:, top_features_idx);
 
 %% FS
 
@@ -131,6 +151,33 @@ top_features_idx = tp_value24<0.05; % example, replace with your indices
 
 X_train_sel = X_train(:, top_features_idx);
 X_test_sel  = X_test(:, top_features_idx);
+
+%% scatter3
+to_plot=1;
+if to_plot
+
+cond=Y_test==1;
+figure('Color',[1 1 1]);
+scatter3( ...
+    X_test(cond, idx(1)), ...
+    X_test(cond, idx(2)), ...
+    X_test(cond, idx(3)), ...
+    100, 'r', 'filled'); % group 1 (condition true)
+hold on;
+
+scatter3( ...
+    X_test(~cond, idx(1)), ...
+    X_test(~cond, idx(2)), ...
+    X_test(~cond, idx(3)), ...
+    100, 'b', 'filled'); % group 2 (condition false)
+
+xlabel(vars{idx(1)},'FontSize',15);
+ylabel(vars{idx(2)},'FontSize',15);
+zlabel(vars{idx(3)},'FontSize',15);
+%legend({'No blood loss','Blood loss'});
+%view(45,30); % nice viewing angle
+
+end
 
 %% --- Prepare Data ---
 
