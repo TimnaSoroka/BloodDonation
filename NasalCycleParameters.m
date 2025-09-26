@@ -1,7 +1,16 @@
-function[LI,measureResults]=NasalCycleParameters(DataToUse,Fs,noiseThreshold)
+function[LI,measureResults]=NasalCycleParameters(DataToUse,Fs,noiseThreshold,device_name)
+
+if strcmpi('Mustache',device_name)
 Data=DataToUse;
-        Resp=hilbert24(Data, Fs, noiseThreshold);
-        Resp2=TraceToBreaths_mustache(Data, Fs, noiseThreshold);
+elseif strcmpi('Holter',device_name)
+Data=[DataToUse(:,2),DataToUse(:,1)];
+%Data=DataToUse;
+else
+    warning('choose device name: Mustache or Holter ');
+end
+
+    Resp=hilbert24(Data, Fs, noiseThreshold);
+        Resp2=TraceToBreaths(Data, Fs, noiseThreshold);
 Laterality_Index2=[Resp2.LI_by_peak];
 Laterality_Index3=[Resp2.LI_by_peak_mov_median];
 % one number variables
