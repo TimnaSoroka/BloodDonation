@@ -39,7 +39,7 @@ if norm
 sum_resp=zscore(sum_resp);
 end
 
-sixHzParticipants = {'045', '067','069'};  
+sixHzParticipants = {'045', '067','069', 'control007'};  
     pid = subjData(i).code;
 
 
