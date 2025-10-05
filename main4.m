@@ -1,6 +1,9 @@
+% leave one out, no featurte selection
+
+
 close all
 clear
-rng(1000)
+rng(50)
 norm=1;
 IntLength=5;
 to_plot=0;
@@ -22,13 +25,13 @@ end
   noiseThreshold=0;
 
  for i=1:size(NCbefore,2)
-     if ismember(i,[42,63,65]) 
-         Fs=6;
-     else
-         Fs=25;
-     end
-[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters(NCbefore{i},Fs,noiseThreshold);
-[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters(NCafter{i},Fs,noiseThreshold);
+     % if ismember(i,[42,63,65]) 
+     %     Fs=6;
+     % else
+     %     Fs=25;
+     % end
+[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters(NCbefore{i},Fs,noiseThreshold,'Holter');
+[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters(NCafter{i},Fs,noiseThreshold,'Holter');
 %[Laterality_IndexD(i),DmeasureResults(i)]=NasalCycleParameters(NCdonation{i},Fs,noiseThreshold);
  end
 
@@ -93,13 +96,13 @@ end
 vals_before=calculate_before_after(before,IntLength);
 [vals_after,vars]=calculate_before_after(after,IntLength);
 
-vals_before([42,63,65])=[];
-vals_after([42,63,65])=[];
+% vals_before([42,63,65])=[];
+% vals_after([42,63,65])=[];
 
 X=table2array(struct2table([vals_before,vals_after]));
 
-BmeasureResults([42,63,65])=[];
-AmeasureResults([42,63,65])=[];
+% BmeasureResults([42,63,65])=[];
+% AmeasureResults([42,63,65])=[];
 x=table2array(struct2table([BmeasureResults,AmeasureResults]));
 x=x(:,[1,4,6,9]);
 
@@ -175,11 +178,12 @@ end
 %% classification
 
 
-hiddenSize = 14;
-autoenc = trainAutoencoder(X', hiddenSize, ...
-    'MaxEpochs',400, 'L2WeightRegularization',0.001);
-X_train_enc = encode(autoenc, X')';
+% hiddenSize = round(sqrt(size(X,1)));
+% autoenc = trainAutoencoder(X', hiddenSize, ...
+%     'MaxEpochs',400, 'L2WeightRegularization',0.001);
+% X_train_enc = encode(autoenc, X')';
 
+X_train_enc=X;
 
 %mrmr_order=fscmrmr(vars_to_class_converged,labels);
 %vars_to_class=[vars_to_class(:,all)]; %,more_vars_to_class(:,[2,5,7])

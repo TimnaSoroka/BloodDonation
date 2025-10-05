@@ -26,13 +26,13 @@ end
   noiseThreshold=0;
 
  for i=1:size(NCbefore,2)
-     if ismember(i,[42,63,65]) 
-         Fs=6;
-     else
-         Fs=25;
-     end
-[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters(NCbefore{i},Fs,noiseThreshold);
-[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters(NCafter{i},Fs,noiseThreshold);
+     % if ismember(i,[42,63,65]) 
+     %     Fs=6;
+     % else
+     %     Fs=25;
+     % end
+[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters(NCbefore{i},Fs,noiseThreshold,'Holter');
+[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters(NCafter{i},Fs,noiseThreshold,'Holter');
 %[Laterality_IndexD(i),DmeasureResults(i)]=NasalCycleParameters(NCdonation{i},Fs,noiseThreshold);
  end
 
@@ -67,16 +67,17 @@ vals_before=calculate_before_after(before,IntLength);
 
 fields2=fieldnames(vals_after);
 
-fields=[fields;fields2];
+fields=[fields2;fields{1};fields{4};fields{6};fields{9}];
 
+%save('Fields.mat',"fields");
 
-vals_before([42,63,65])=[];
-vals_after([42,63,65])=[];
+% vals_before([42,63,65])=[];
+% vals_after([42,63,65])=[];
 
 X=table2array(struct2table([vals_before,vals_after]));
 
-BmeasureResults([42,63,65])=[];
-AmeasureResults([42,63,65])=[];
+% BmeasureResults([42,63,65])=[];
+% AmeasureResults([42,63,65])=[];
 x=table2array(struct2table([BmeasureResults,AmeasureResults]));
 x=x(:,[1,4,6,9]);
 
@@ -89,7 +90,7 @@ sex_vec1=([subjData.Weight]<thresh);
 
 % sex_vec1=logical([subjData.sex]);
 
-sex_vec1([42,63,65])=[];
+% sex_vec1([42,63,65])=[];
 sex_vec=[sex_vec1,sex_vec1];
 
 X_train=X(~sex_vec,:);
@@ -141,17 +142,6 @@ top_features_idx = tp_value24<0.05; % example, replace with your indices
 X_train_sel = X_train(:, top_features_idx);
 X_test_sel  = X_test(:, top_features_idx);
 
-%% FS
-
-features = fscnca(X_train, Y_train);  % fscnca selects features based on correlation with the target
-[f_v,f_idx]=sort(features.FeatureWeights,'descend');
-[a,idx]=sort(tp_value24);
-
-top_features_idx = tp_value24<0.05; % example, replace with your indices
-
-X_train_sel = X_train(:, top_features_idx);
-X_test_sel  = X_test(:, top_features_idx);
-
 %% scatter3
 to_plot=1;
 if to_plot
@@ -182,14 +172,15 @@ end
 %% --- Prepare Data ---
 
 % Impute missing values (median of training set)
-for f = 1:size(X_train_sel,2)
-    nan_idx_train = isnan(X_train_sel(:,f));
-    X_train_sel(nan_idx_train,f) = median(X_train_sel(:,f), 'omitnan');
-    
-    nan_idx_test = isnan(X_test_sel(:,f));
-    X_test_sel(nan_idx_test,f) = median(X_train_sel(:,f), 'omitnan'); % use training median
-end
+% for f = 1:size(X_train_sel,2)
+%     nan_idx_train = isnan(X_train_sel(:,f));
+%     X_train_sel(nan_idx_train,f) = median(X_train_sel(:,f), 'omitnan');
+% 
+%     nan_idx_test = isnan(X_test_sel(:,f));
+%     X_test_sel(nan_idx_test,f) = median(X_train_sel(:,f), 'omitnan'); % use training median
+% end
 
+%save('Features_selected_from_training_set.mat','top_features_idx');
 %% --- Classifier Definitions ---
 K = 5;
 cv = cvpartition(Y_train,'KFold',K);

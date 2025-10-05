@@ -17,6 +17,21 @@ function [before, after,donation,NCbefore, NCafter,NCdonation]=extract_timings_n
 
 T=subjData(i).Data;
 resp_stereo=table2array(T(:,[3 4]));
+
+if std(resp_stereo(:,1))<25
+    warning('check if R nostril recording is valid')
+     figure
+    plot(resp_stereo(1:5000,:))
+    title([subjData(i).code ' std: ' num2str(std(resp_stereo(:,1))) ])
+end
+
+if std(resp_stereo(:,2))<25
+    warning('check if L nostril recording is valid')
+        figure
+    plot(resp_stereo(1:5000,:))
+    title([subjData(i).code ' std: ' num2str(std(resp_stereo(:,2))) ])
+end
+
 resp_stereo(isnan(resp_stereo(:,1)),:)=[];
 sum_resp=sum(resp_stereo,2);
 
@@ -24,7 +39,7 @@ if norm
 sum_resp=zscore(sum_resp);
 end
 
-sixHzParticipants = {'045', '067','069'};  % example list
+sixHzParticipants = {'045', '067','069'};  
     pid = subjData(i).code;
 
 
@@ -77,9 +92,20 @@ if stop1>subjData(i).in
 end
 
 
-NCbefore=resp_stereo(start1:stop1,:);
+NCbefore=resp_stereo(start1:stop1,:); 
 NCafter=resp_stereo(start2:stop2,:);
 NCdonation=resp_stereo(subjData(i).in:subjData(i).out,:);
+
+
+if ismember(pid, sixHzParticipants)
+before=resample(before, 25, 6);
+after=resample(after, 25, 6);
+donation=resample(donation, 25, 6);
+NCbefore=resample(NCbefore, 25, 6);
+NCafter=resample(NCafter, 25, 6);
+NCdonation=resample(NCdonation, 25, 6);
+end
+
 end
 
 
