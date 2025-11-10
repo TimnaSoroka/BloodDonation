@@ -39,11 +39,6 @@ if norm
 sum_resp=zscore(sum_resp);
 end
 
-
-sixHzParticipants = {'045', '067','069', 'control007','control020'};  
-    pid = subjData(i).code;
-
-
     if strcmpi('095',subjData(i).code)
 sum_resp1=sum_resp(1:48030);
 sum_resp2=sum_resp(48031:end);
@@ -55,6 +50,10 @@ resp2=resp_stereo(48031:end,:);
 resp2_resampled=resample(resp2,25,6);
 resp_stereo=[resp1;resp2_resampled];
     end
+    
+sixHzParticipants = {'045', '067','069', 'control007','control020'};  
+    pid = subjData(i).code;
+
 
 if ismember(pid, sixHzParticipants)
         Fs=6;
@@ -82,7 +81,10 @@ duration=IntLength*60*Fs;
  stop1=start1+duration-1;
 
  %start2=length(sum_resp)-duration+1;
-  start2=subjData(i).out+2*60*Fs;
+  start2=subjData(i).in_chair;
+  if isempty(start2)
+      start2=length(sum_resp)-duration-60*Fs;
+  end
  stop2=start2+duration-1;
 
   if stop2>length(sum_resp)
@@ -97,12 +99,9 @@ duration=IntLength*60*Fs;
 % (stop1-start1)/(Fs*60)
 % (stop2-start2)/(Fs*60)
 
-
-
 before=sum_resp(start1:stop1);
 after=sum_resp(start2:stop2);
 donation=sum_resp(subjData(i).in:subjData(i).out);
-
 
 if stop1>subjData(i).walk
     fprintf('interval includes walk time \n ');
