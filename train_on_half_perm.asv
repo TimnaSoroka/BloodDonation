@@ -1,0 +1,250 @@
+close all
+clear
+rng(150)
+norm=1; %1=80%, 0=50%
+IntLength=5; % 3 is the best
+Fs=25; 
+%
+ load('Holter_timings.mat');
+
+%load('Holter_timings_controls.mat');
+
+exclude = {'027','105','019','028','032','042','095'}; %'025','105',
+allCodes = {subjData.code};            % 1xN cell array of char/string
+mask = ~ismember(allCodes, exclude);
+subjData = subjData(mask);
+
+subjData([subjData.Weight]>90)=[];
+
+disp_ttests=0;
+
+%%
+for i=1:size(subjData,2)
+%[before{i},after{i},donation{i},NCbefore{i},NCafter{i},NCdonation{i}]=extract_timings_needle(i,norm, IntLength,subjData); %_needle_walk_in_chair
+%    [before{i},after{i},donation{i},NCbefore{i},NCafter{i},NCdonation{i}]=extract_timings_needle_lay(i,norm, IntLength,subjData); %_needle_walk_in_chair
+[before{i},after{i},donation{i},NCbefore{i},NCafter{i},NCdonation{i}]=extract_timings_needle_walk_in_chair2(i,norm, IntLength,subjData); %_needle_walk_in_chair
+
+end
+
+ %%
+keep = cellfun(@(v) size(v,1) >= 5*60*Fs, NCafter);
+removedIdx = find(~keep);              % indices of cells you dropped
+disp(removedIdx);
+NCafter = NCafter(keep);                            % keep only long-enough cells
+NCbefore = NCbefore(keep);  
+before = before(keep);  
+after = after(keep);  
+
+
+  noiseThreshold=0;
+
+ for i=1:size(NCbefore,2)
+     % if ismember(i,[42,63,65]) 
+     %     Fs=6;
+     % else
+     %     Fs=25;
+     % end
+[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters(NCbefore{i},Fs,noiseThreshold,'Holter');
+[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters(NCafter{i},Fs,noiseThreshold,'Holter');
+%[Laterality_IndexD(i),DmeasureResults(i)]=NasalCycleParameters(NCdonation{i},Fs,noiseThreshold);
+ end
+
+  for i=1:size(NCbefore,2)
+      if ~isempty([Laterality_IndexA(i).one])
+ LI_ampB{i}=abs([Laterality_IndexB(i).one]);
+ LI_B{i}=[Laterality_IndexB(i).one];
+ LI_ampA{i}=abs([Laterality_IndexA(i).one]);
+ LI_A{i}=[Laterality_IndexA(i).one];
+      end
+  end
+vals_before=calculate_before_after(before);
+[vals_after,vars]=calculate_before_after(after);
+
+fields=fieldnames(BmeasureResults);
+fields2=fieldnames(vals_after);
+
+fields=[fields2;fields{1};fields{3};fields{4};fields{6}];
+
+%save('Fields.mat',"fields");
+
+% vals_before([42,63,65])=[];
+% vals_after([42,63,65])=[];
+
+X=table2array(struct2table([vals_before,vals_after]));
+
+% BmeasureResults([42,63,65])=[];
+% AmeasureResults([42,63,65])=[];
+x=table2array(struct2table([BmeasureResults,AmeasureResults]));
+
+%% --- Build X, Y (unchanged) ---
+X = [X, x];   % your existing features + new feature x
+
+% Labels: 1 = before, 2 = after
+Y = [ones(size(vals_before,2),1); 2*ones(size(vals_after,2),1)];
+
+%% --- Repeated random train/test splits ---
+nRepeats    = 1000;   % how many random splits
+holdoutFrac = 0.4;   % fraction held out for TEST (0.4 = 40% test, etc.)
+
+% To store results
+all_test_acc  = nan(nRepeats,1);
+all_test_auc  = nan(nRepeats,1);
+all_best_name = strings(nRepeats,1);
+
+for r = 1:nRepeats
+   % fprintf('\n=== Repetition %d/%d ===\n', r, nRepeats);
+
+    % ----- Random train/test split -----
+    cvHold = cvpartition(Y, 'HoldOut', holdoutFrac);
+    trainIdx = training(cvHold);
+    testIdx  = test(cvHold);
+
+    X_train = X(trainIdx,:);
+    Y_train = Y(trainIdx);
+    X_test  = X(testIdx,:);
+    Y_test  = Y(testIdx,:);
+
+    % ----- 1) Impute missing values (TRAIN median) -----
+    med_train = nanmedian(X_train,1);
+    XtrImp = X_train;
+    for j = 1:size(XtrImp,2)
+        m = isnan(XtrImp(:,j));
+        XtrImp(m,j) = med_train(j);
+    end
+
+    XteImp = X_test;
+    for j = 1:size(XteImp,2)
+        m = isnan(XteImp(:,j));
+        XteImp(m,j) = med_train(j);    % use TRAIN medians
+    end
+
+    % ----- 2) Standardize using TRAIN stats -----
+    mu_tr = mean(XtrImp,1,'omitnan');
+    sd_tr = std(XtrImp,0,1,'omitnan');
+    sd_tr(sd_tr==0) = 1;
+
+    XtrainZ = (XtrImp - mu_tr) ./ sd_tr;  % only TRAIN defines scaling
+    XtestZ  = (XteImp - mu_tr) ./ sd_tr;  % apply same to TEST
+
+    % ----- 3) PCA on TRAIN only; apply to both -----
+    % [coeff, ~, ~, ~, expl, muPCA] = pca(XtrainZ);
+    % k = find(cumsum(expl)>=95,1,'first');  % keep 95% variance
+    % 
+    % X_train_sel = (XtrainZ - muPCA) * coeff(:,1:k);
+    % X_test_sel  = (XtestZ  - muPCA) * coeff(:,1:k);
+
+    X_train_sel=XtrainZ;
+    X_test_sel=XtestZ;
+    %% --- Classifier Definitions & K-fold CV on TRAIN ---
+    K  = 5;
+    cv = cvpartition(Y_train,'KFold',K);
+
+        classifier_names = {'SVM-linear'};
+ %   classifier_names = {'Logistic','kNN','DecisionTree','SVM-linear','SVM-rbf'};
+    cv_accuracy = zeros(length(classifier_names),1);
+
+    for c = 1:length(classifier_names)
+        acc_fold = zeros(K,1);  % accuracy per fold
+
+        for kfold = 1:K
+            trIdx = training(cv,kfold);
+            valIdx = test(cv,kfold);
+
+            Xtr = X_train_sel(trIdx,:);
+            Ytr = Y_train(trIdx);
+            Xval = X_train_sel(valIdx,:);
+            Yval = Y_train(valIdx);
+
+            % Train classifier
+            switch classifier_names{c}
+                case 'SVM-linear'
+                    mdl = fitcsvm(Xtr, Ytr, 'KernelFunction','linear');
+                case 'SVM-rbf'
+                    mdl = fitcsvm(Xtr, Ytr, 'KernelFunction','rbf');
+                case 'kNN'
+                    mdl = fitcknn(Xtr, Ytr, 'NumNeighbors',5);
+                case 'DecisionTree'
+                    mdl = fitctree(Xtr, Ytr, ...
+                        'SplitCriterion', 'gdi', ...
+                        'MaxNumSplits', 4, ...
+                        'Surrogate', 'off');
+                case 'Logistic'
+                    mdl = fitclinear(Xtr, Ytr, 'Learner','logistic');
+            end
+
+            % Predict on validation fold
+            Ypred = predict(mdl, Xval);
+            acc_fold(kfold) = sum(Ypred == Yval) / numel(Yval);
+        end
+
+        cv_accuracy(c) = mean(acc_fold); % mean CV accuracy on TRAIN
+    end
+
+    % Display CV results for this repetition
+    cv_table = table(classifier_names', cv_accuracy, ...
+        'VariableNames', {'Classifier','CV_Accuracy'});
+    disp(cv_table);
+
+    % Pick best classifier
+    [~, best_idx] = max(cv_accuracy);
+    best_classifier_name = classifier_names{best_idx};
+    all_best_name(r) = best_classifier_name;
+
+    % Train best classifier on FULL TRAIN set
+    switch best_classifier_name
+        case 'SVM-linear'
+            best_clf = fitcsvm(X_train_sel, Y_train, 'KernelFunction','linear');
+        case 'SVM-rbf'
+            best_clf = fitcsvm(X_train_sel, Y_train, 'KernelFunction','rbf');
+        case 'kNN'
+            best_clf = fitcknn(X_train_sel, Y_train, 'NumNeighbors',5);
+        case 'DecisionTree'
+            best_clf = fitctree(X_train_sel, Y_train);
+        case 'Logistic'
+            best_clf = fitclinear(X_train_sel, Y_train,'Learner','logistic');
+    end
+
+    % ----- Test on held-out TEST set -----
+    [y_pred_test, y_score] = predict(best_clf, X_test_sel);
+    test_acc = sum(y_pred_test == Y_test) / numel(Y_test);
+    all_test_acc(r) = test_acc;
+
+    cm = confusionmat(Y_test, y_pred_test);
+    % disp(['Best classifier in rep ', num2str(r), ': ', best_classifier_name]);
+    % disp('Confusion Matrix:');
+    % disp(cm);
+    % disp(['Test Accuracy: ', num2str(test_acc)]);
+
+    % ----- ROC & AUC for this repetition -----
+    posClass = 2;  % positive = "after"
+    cls = best_clf.ClassNames;
+    idxPos = find(ismember(cls, posClass));
+
+    if ~isempty(idxPos)
+        posScores = y_score(:, idxPos);
+        [fpRate, tpRate, ~, AUC] = perfcurve(Y_test, posScores, posClass);
+        all_test_auc(r) = AUC;
+     %   fprintf('AUC: %.4f\n', AUC);
+        % Optionally plot ROC for first repetition:
+        % if r == 1
+        %     figure; plot(fpRate, tpRate); xlabel('FPR'); ylabel('TPR');
+        %     title(sprintf('ROC (Rep %d, %s)', r, best_classifier_name));
+        % end
+    else
+        warning('Positive class not found in ClassNames in rep %d.', r);
+        all_test_auc(r) = NaN;
+    end
+end
+
+%% --- Summary over all repetitions ---
+fprintf('\n===== Summary over %d random splits (holdout %.0f%%) =====\n', ...
+    nRepeats, holdoutFrac*100);
+
+fprintf('Mean test accuracy: %.3f (SD = %.3f)\n', ...
+    mean(all_test_acc,'omitnan'), std(all_test_acc,'omitnan'));
+
+fprintf('Mean AUC:          %.3f (SD = %.3f)\n', ...
+    mean(all_test_auc,'omitnan'), std(all_test_auc,'omitnan'));
+
+disp('Best classifier frequency:');
+tabulate(all_best_name);

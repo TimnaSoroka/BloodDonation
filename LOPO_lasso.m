@@ -1,0 +1,322 @@
+close all
+clear
+rng(1500)
+Fs=25; 
+load('Holter_timings.mat');
+IntLength=3;
+norm=1;
+subjData([29,38])=[]; %less than 5 minutes after in chair 
+%subjData([16,25,29,38,90])=[]; %less than 10 minutes after in_chair 16,25,29,38,90
+%subjData(17)=[];
+
+BM_features_Names = {...
+    'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', 'AverageInhaleDuration', ...
+    'AverageInhalePauseDuration', 'AverageInhaleVolume', 'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', ...
+    'AveragePeakInspiratoryFlow', 'AverageTidalVolume', 'BreathingRate', 'CoefficientOfVariationOfBreathVolumes', ...
+    'CoefficientOfVariationOfBreathingRate', 'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
+    'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', 'DutyCycleOfExhale', ...
+    'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', 'MinuteVentilation', 'PercentOfBreathsWithExhalePause', ...
+    'PercentOfBreathsWithInhalePause'};
+
+N=size(subjData,2);
+
+for i = 1:numel(subjData)
+% % %     % 5 minute interval case
+% % %     % if ismember(i,[29,38,90])
+% % %     %     continue
+% % %     % end
+% % %          % 10 minute interval case
+% % % 
+% % % 
+% % %     T = subjData(i).Data;                        % table
+% % %     resp_stereo = table2array(T(:,[3 4]));      % make sure this is defined for both branches
+% % %     Fs_raw = 25;                                % default sampling rate
+% % %     rec_minutes = size(T,1) / (60*Fs_raw);
+% % % 
+% % %     % Handle the 6 Hz cases by resampling to 25 Hz AND scaling in/out indices
+% % %     if rec_minutes < 20
+% % %         warning('check_sampling_rate for participant %s', subjData(i).code);
+% % %         Fs_raw = 6;
+% % %         X = sum(resp_stereo,2);
+% % %         X = zscore(resample(X, 25, 6));
+% % %         resp_stereo=resample(resp_stereo, 25, 6);
+% % %         Fs = 25;
+% % %         scale = Fs / Fs_raw;
+% % %         in_idx  = max(1, min(numel(X), round(subjData(i).in  * scale)));
+% % %         out_idx = max(1, min(numel(X), round(subjData(i).out * scale)));
+% % %                 in_chair = max(1, min(numel(X), round(subjData(i).in_chair * scale)));
+% % %         walk = max(1, min(numel(X), round(subjData(i).walk * scale)));
+% % % 
+% % %     else
+% % %         X = zscore(sum(resp_stereo,2));
+% % %         in_idx  = subjData(i).in;
+% % %         out_idx = subjData(i).out;
+% % %        in_chair = subjData(i).in_chair;
+% % %        walk = subjData(i).walk;
+% % % 
+% % %     end
+% % % 
+% % %     During{i}=X(in_idx+30*25:out_idx);
+% % % During_in_minute(i)=numel(During{i})/(60*25);
+% % % 
+% % %     % Before{i}=X(1*60*25-1:in_idx-1);
+% % %     % After{i}=X(out_idx+1:end-1*60*25);
+% % %      % 
+% % %      %     Before{i}=X(1*60*25-1:11*60*25);
+% % %      % After{i}=X(end-11*60*25:end-1*60*25-1);
+% % % 
+% % %      %this option gives 63%
+% % %       %          Before{i}=X(0.5*60*25:walk);
+% % %       % After{i}=X(in_chair:end-0.5*60*25-1);
+% % % 
+% % %     %  this option gives 80%
+% % %       %if ~isempty(walk)
+% % %           % Before{i}=X(walk-10*60*25:walk);
+% % %           % Before_LI{i}=resp_stereo(walk-10*60*25:walk,:);    
+% % %      % else
+% % %           Before{i}=X(2*60*25:5*60*25);
+% % %           Before_LI{i}=resp_stereo(2*60*25:5*60*25,:);
+% % %       % end
+% % % 
+% % %        if  isempty(in_chair)
+% % %            After{i}=X(out_idx+2*60*25:out_idx+5*60*25);
+% % %            After_LI{i}=resp_stereo(out_idx+2*60*25:out_idx+5*60*25,:);
+% % %        else
+% % %           After{i}=X(in_chair:in_chair+3*60*25);
+% % %                     After_LI{i}=resp_stereo(in_chair:in_chair+3*60*25,:);
+% % %       end
+% % % 
+% % %           % % % Before{i}=X(in_idx+30*25:2.5*60*25+in_idx);
+% % %           % % % Before_LI{i}=resp_stereo(in_idx+30*25:2*60*25+in_idx,:);
+% % %           % % % 
+% % %           % % % After{i}=X(out_idx-60*25:out_idx+60*25);
+% % %           % % %           After_LI{i}=resp_stereo(out_idx-60*25:out_idx+60*25,:);
+% % % 
+% % % 
+% % %                           %this option gives 74%
+% % %      %       if ~isempty(walk)
+% % %      %           Before{i}=X(walk-5*60*25:walk);
+% % %      %       else
+% % %      %           Before{i}=X(1*60*25:6*60*25);
+% % %      %       end
+% % %      %                if ismember(i,[16,25,29,38,90]) || isempty(in_chair)
+% % %      %                    After{i}=X(end-5*60*25:end);
+% % %      %                else
+% % %      %                          After{i}=X(in_chair:in_chair+5*60*25);
+% % %      % end
+% % % 
+% % % 
+% % % After_in_minute(i)=numel(After{i})/(60*25);
+% % % Before_in_minute(i)=numel(Before{i})/(60*25);
+% % % end
+% % % 
+% % % After_in_minute(After_in_minute==0)=nan;
+% % % % mean(After_in_minute,'omitnan')
+% % % % sum(~isnan(After_in_minute))
+% % % 
+% % % After=After(~isnan(After_in_minute));
+% % % 
+% % % Before_in_minute(Before_in_minute==0)=nan;
+% % % % mean(Before_in_minute,'omitnan')
+% % % % sum(~isnan(Before_in_minute))
+% % % Before=Before(~isnan(Before_in_minute));
+    [Before{i}, After{i},donation{i},Before_LI{i}, After_LI{i},NCdonation{i}]=extract_timings_needle_walk_in_chair(i,norm, IntLength,subjData);
+
+end
+
+vals_before=calculate_before_after(Before);
+vals_after=calculate_before_after(After);
+
+ for i=1:size(Before_LI,2)
+     % if ismember(i,[42,63,65]) 
+     %     Fs=6;
+     % else
+     %     Fs=25;
+     % end
+[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters_short(Before_LI{i},Fs,0,'Holter');
+[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters_short(After_LI{i},Fs,0,'Holter');
+%[Laterality_IndexD(i),DmeasureResults(i)]=NasalCycleParameters(NCdonation{i},Fs,noiseThreshold);
+ end
+
+X=table2array(struct2table([vals_before,vals_after]));
+
+%%
+x=table2array(struct2table([BmeasureResults,AmeasureResults]));
+ x=x(:,[1,3,4,6]);
+fields=fieldnames(BmeasureResults);
+% fields=fields([1,4,6,9]);
+ fields=fields([1,4,6,3]);
+fields=[BM_features_Names,fields'];
+X=[X,x];
+
+Y=[ones(size(vals_before,2),1);2*ones(size(vals_after,2),1)];
+% % 
+% % subjData_weight1=subjData(~isnan(Before_in_minute));
+% % subjData_weight2=subjData(~isnan(After_in_minute));
+% % % % 
+% % Weight=[subjData_weight1.sex,subjData_weight2.sex]';
+% % 
+% % X=[X,Weight];
+% % thresh=mean(Weight,'omitmissing');
+% % sex_vec=(Weight<thresh);
+% % 
+% % % sex_vec1=logical([subjData.sex]);
+% % 
+% % % sex_vec1([42,63,65])=[];
+% % 
+% % X_train=X(~sex_vec,:);
+% % Y_train=Y(~sex_vec);
+% % 
+% % X_test=X(sex_vec,:);
+% % Y_test=Y(sex_vec);
+
+
+% % for i=1:size(BM_features_Names,2)
+% %     currentfield=BM_features_Names{i};
+% %     test_values = [vals_before(:).(currentfield)];   % Test scores 
+% % retest_values = [vals_after(:).(currentfield)]; % Retest scores 
+% % 
+% % % % delta=test_values-retest_values;
+% % % % outlierMask = isoutlier(delta,"mean");      % Detect outliers (default: median + MAD)
+% % % % retest_values = retest_values(~outlierMask);   % Remove outliers
+% % % % test_values = test_values(~outlierMask);   % Remove outliers
+% % % % 
+% % %[p_value24(i),~,Wstat24(i)] = signrank(test_values, retest_values,'method','approximate');
+% % [~,tp_value24(i),~,tstat24(i)] = ttest(test_values, retest_values);
+% % 
+% % %  [~,tp_value24_women(i)] = ttest(test_values(sex_vec_clean2), retest_values(sex_vec_clean2));
+% % %   [~,tp_value24_men(i)] = ttest(test_values(~sex_vec_clean2), retest_values(~sex_vec_clean2));
+% % 
+% % if tp_value24(i)<0.05
+% % % if to_plot
+% % %     figure;
+% % % min_=min([test_values,retest_values]);
+% % % max_=max([test_values,retest_values]);
+% % % scatter(test_values(sex_vec_clean2), retest_values(sex_vec_clean2), 100, 'r', 'filled'); % Blue filled markers
+% % % hold on
+% % % scatter(test_values(~sex_vec_clean2), retest_values(~sex_vec_clean2), 100, 'b', 'filled'); % Blue filled markers
+% % % 
+% % % plot([min_ max_],[min_ max_], 'k--'); % Identity line
+% % % xlim([min_ max_])
+% % % ylim([min_ max_])
+% % % % Perform Mann-Whitney U test (non-parametric test for paired samples)
+% % % set(gca,'FontSize',12)
+% % % 
+% % % % Format title with p-value
+% % % title(sprintf('%s (ttest p = %.4f)',vars{i},tp_value24(i)));
+% % % 
+% % % % Axis labels and limits
+% % % xlabel('Before');
+% % % ylabel('After');
+% % %         end
+% %                 % Descriptives
+% %     mx = mean(test_values, 'omitnan'); sx = std(test_values, 'omitnan'); nx = numel(test_values);
+% %     my = mean(retest_values, 'omitnan'); sy = std(retest_values, 'omitnan'); ny = numel(retest_values);
+% % 
+% %    % valid = ~isnan(test_values) & ~isnan(retest_values);
+% %         % x = test_values(valid);
+% %         % y = retest_values(valid);
+% %         [~,p,~,stats] = ttest2(test_values, retest_values);
+% %         % Effect size: Cohen's dz for paired (mean diff / SD diff)
+% %             df = stats.df; tval = stats.tstat;
+% % varName=currentfield;
+% %     fprintf('%s: t(%d)=%.2f, p=%.4g]\n', ...
+% %         varName, df, tval, p);
+% %     fprintf('   before: %0.3f \xB1 %0.3f (n=%d);  after: %0.3f \xB1 %0.3f (n=%d)\n', ...
+% %         mx, sx, nx, my, sy, ny);
+% %                       %  fprintf(['mean+std before and after' num2str(mean(test_values,'omitnan')) '±' num2str(std(test_values,'omitnan')) ',' num2str(mean(retest_values,'omitnan')) '±' num2str(std(retest_values,'omitnan')) '\n'])
+% % end
+% % end
+%% === LOPO: Leave-Participant-Out cross-validation ===
+%% === LOPO with L1-logistic feature selection (train-only) ===
+% Assumes X (rows = [before; after] per participant) and Y (1=Before, 2=After) already exist.
+% Uses lassoglm (binomial) with inner CV to pick lambda; nonzero weights = selected features.
+
+posClass = 2;   % AFTER
+assert(sum(Y==1)==sum(Y==2), 'Expect one BEFORE and one AFTER per participant.');
+nSubj = sum(Y==1);
+pid   = [(1:nSubj)'; (1:nSubj)'];   % participant id per row
+nFeat = size(X,2);
+
+y_true_all = []; 
+y_pred_all = []; 
+score_all  = [];          % P(class==2) for ROC
+fold_acc   = nan(nSubj,1);
+
+% Track which features are kept across folds
+sel_counts = zeros(1, nFeat);       % how many folds selected this feature
+coef_sum   = zeros(1, nFeat);       % sum of coefficients when selected (for sign/size)
+
+for s = 1:nSubj
+    teMask = (pid == s);
+    trMask = ~teMask;
+
+    Xtr = X(trMask,:);  Ytr = Y(trMask);
+    Xte = X(teMask,:);  Yte = Y(teMask);
+
+    % % ---- train-only z-score ----
+    % mu = mean(Xtr,1);
+    % sd = std(Xtr,[],1); sd(sd==0) = 1;
+    % Xtr = (Xtr - mu) ./ sd;
+    % Xte = (Xte - mu) ./ sd;
+
+    % ---- L1-logistic with 5-fold CV on TRAIN ONLY ----
+    [B, FitInfo] = lassoglm(Xtr, Ytr==posClass, 'binomial', ...
+        'CV', 5, 'Standardize', true);
+
+
+    % Prefer 1SE (sparser); fallback to MinDeviance if 1SE empties all features
+    lamIdx = FitInfo.IndexMinDeviance;
+    if isempty(lamIdx) || all(B(:,lamIdx)==0)
+        lamIdx = FitInfo.IndexMinDeviance;
+    end
+
+    w = B(:, lamIdx);                 % coefficients (features)
+    b = FitInfo.Intercept(lamIdx);    % intercept
+
+    % Record selection stats
+    sel = (w ~= 0)';
+    sel_counts = sel_counts + sel;
+    coef_sum   = coef_sum   + (w'.*sel);
+
+    % ---- Test on held-out participant ----
+    eta = b + Xte*w;
+    p2  = 1 ./ (1 + exp(-eta));       % probability class==2
+    ypred = ones(size(p2)); 
+    ypred(p2 >= 0.5) = 2;
+
+    y_true_all = [y_true_all; Yte];
+    y_pred_all = [y_pred_all; ypred];
+    score_all  = [score_all;  p2];
+
+    fold_acc(s) = mean(ypred == Yte);
+end
+
+% ---- Aggregate metrics ----
+overall_acc = mean(y_true_all == y_pred_all);
+cm = confusionmat(y_true_all, y_pred_all, 'Order', [1 2]);
+[fpRate, tpRate, ~, AUC] = perfcurve(y_true_all, score_all, posClass);
+
+fprintf('LOPO (L1-logistic): Accuracy = %.4f, AUC = %.4f\n', overall_acc, AUC);
+disp('Confusion matrix (rows=true [1,2], cols=pred [1,2]):');
+disp(cm);
+
+figure; 
+plot(fpRate, tpRate, 'LineWidth', 2); hold on; plot([0 1],[0 1],'k--');
+xlabel('False Positive Rate'); ylabel('True Positive Rate');
+title(sprintf('LOPO ROC — AUC = %.2f', AUC)); grid on; axis square;
+
+% ---- Top selected features summary ----
+[~, ord] = sort(sel_counts, 'descend');
+topK = min(15, numel(ord));
+SelectionRate = sel_counts(ord(1:topK))' / nSubj;
+MeanCoefWhenSelected = coef_sum(ord(1:topK))' ./ max(1, sel_counts(ord(1:topK))');
+Tsel = table(ord(1:topK)', SelectionRate, MeanCoefWhenSelected, ...
+    'VariableNames', {'FeatureIdx','SelectionRate','MeanCoefWhenSelected'});
+
+if exist('BM_features_Names','var') && numel(BM_features_Names)==nFeat
+    Tsel.Feature = string(BM_features_Names(ord(1:topK)))';
+    Tsel = movevars(Tsel,'Feature','Before','FeatureIdx');
+end
+disp(Tsel);
+

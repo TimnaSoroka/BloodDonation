@@ -1,0 +1,280 @@
+close all
+clear
+rng(50)
+Fs=25; 
+load('Holter_timings_controls.mat');
+subjData1=subjData;
+
+load('Holter_timings.mat');
+
+exclude = {'025','105','019','028','032','042','095'}; %'025','105',
+allCodes = {subjData.code};            % 1xN cell array of char/string
+mask = ~ismember(allCodes, exclude);
+subjData = subjData(mask);
+
+%subjData([22,98])=[]; %less th
+% an 10 minutes after in_chair 16,25,29,38,90
+%subjData([16,22,27,36,88])=[];
+% subjData([29,38,90])=[]; %less than 5 minutes after in chair 
+%subjData([16,25,29,38,90])=[]; %less than 10 minutes after in_chair 16,25,29,38,90
+%subjData(17)=[];
+subjData([subjData.Weight]>90)=[];
+
+BM_features_Names = {...
+    'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', 'AverageInhaleDuration', ...
+    'AverageInhalePauseDuration', 'AverageInhaleVolume', 'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', ...
+    'AveragePeakInspiratoryFlow', 'AverageTidalVolume', 'BreathingRate', 'CoefficientOfVariationOfBreathVolumes', ...
+    'CoefficientOfVariationOfBreathingRate', 'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
+    'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', 'DutyCycleOfExhale', ...
+    'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', 'MinuteVentilation', 'PercentOfBreathsWithExhalePause', ...
+    'PercentOfBreathsWithInhalePause'};
+
+N=size(subjData,2);
+IntLength=10;
+norm=1;
+
+for i = 1:numel(subjData)
+
+ [Before{i}, After{i},donation{i},Before_LI{i}, After_LI{i},NCdonation{i}]=extract_timings_needle_walk_in_chair2(i,norm, IntLength,subjData);
+     
+end
+
+vals_before=calculate_before_after(Before);
+vals_after=calculate_before_after(After);
+ for i=1:size(Before_LI,2)
+[Laterality_IndexB(i),BmeasureResults(i)]=NasalCycleParameters(Before_LI{i},Fs,0,'Holter');
+[Laterality_IndexA(i),AmeasureResults(i)]=NasalCycleParameters(After_LI{i},Fs,0,'Holter');
+%[Laterality_IndexD(i),DmeasureResults(i)]=NasalCycleParameters(NCdonation{i},Fs,noiseThreshold);
+ end
+x=table2array(struct2table([BmeasureResults,AmeasureResults]));
+ x=x(:,[1,9,4,6]);
+
+X=table2array(struct2table([vals_before,vals_after]));
+
+
+for i = 1:numel(subjData1)
+
+ [BeforeC{i}, AfterC{i},donation{i},CBefore_LI{i}, CAfter_LI{i},NCdonation{i}]=extract_timings_needle_walk_in_chair2(i,norm, IntLength,subjData);
+     
+end
+
+vals_beforeC=calculate_before_after(BeforeC);
+vals_afterC=calculate_before_after(AfterC);
+
+ for i=1:size(CBefore_LI,2)
+[~,CBmeasureResults(i)]=NasalCycleParameters(CBefore_LI{i},Fs,0,'Holter');
+[~,CAmeasureResults(i)]=NasalCycleParameters(CAfter_LI{i},Fs,0,'Holter');
+%[Laterality_IndexD(i),DmeasureResults(i)]=NasalCycleParameters(NCdonation{i},Fs,noiseThreshold);
+ end
+
+x1=table2array(struct2table([CBmeasureResults,CAmeasureResults]));
+ x1=x1(:,[1,9,4,6]);
+
+ X1=table2array(struct2table([vals_beforeC,vals_afterC]));
+X1=[X1,x1];
+
+%%
+
+fields=fieldnames(BmeasureResults);
+ fields=fields([1,4,6,9]);
+% fields=fields([1,3,4,6]);
+fields=[BM_features_Names,fields'];
+X=[X,x];
+%fields=BM_features_Names;
+% % v={subjData.P_Donation_Amount};
+% %  v{60}='367';
+% %  v{13}='558';
+% %  v{31}='498';
+% %  v{38}='500';
+% % v_num = str2double(string(v));
+% % 
+% % w_all=[v_num,v_num]';
+% % 
+% % valid = ~isnan(w_all);
+Y=[ones(size(vals_before,2),1);2*ones(size(vals_after,2),1)];
+Y1=[ones(size(vals_beforeC,2),1);2*ones(size(vals_afterC,2),1)];
+
+% % 
+% % X = X(valid, :);     % keep only rows with valid weight
+% % Y = Y(valid, :);
+% % w = w_all(valid);    % cleaned weight
+% % 
+% % Z = [ones(size(w)) w];   % N × 2
+% % 
+% % % Fit linear model X ≈ Z * B  (all features at once)
+% % B     = Z \ X;           % 2 × P   regression coefficients
+% % X_hat = Z * B;           % N × P   part explained by weight
+% % X_res = X - X_hat; 
+%% --- Repeated random train/test splits ---
+nRepeats    = 1000;   % how many random splits
+holdoutFrac = 0.6;   % fraction held out for TEST (0.4 = 40% test, etc.)
+
+% To store results
+all_test_acc  = nan(nRepeats,1);
+all_test_auc  = nan(nRepeats,1);
+all_best_name = strings(nRepeats,1);
+
+nn= size(X1,1)/2;
+for r = 1:nRepeats
+   % fprintf('\n=== Repetition %d/%d ===\n', r, nRepeats);
+
+    % ----- Random train/test split -----
+    cvHold = cvpartition(Y, 'HoldOut', holdoutFrac);
+    trainIdx = training(cvHold);
+    testIdx  = test(cvHold);
+
+    X_train = X(trainIdx,:);
+
+    n=size(X_train,1)/2;
+X_train(1:nn,:)=X1(1:nn);
+X_train(1:nn,:)=X1(nn+1:end);
+X_train(n+1:e,:)=X1(nn+1:end);
+
+    Y_train = Y(trainIdx);
+    X_test  = X(testIdx,:);
+    Y_test  = Y(testIdx,:);
+
+    % ----- 1) Impute missing values (TRAIN median) -----
+    med_train = nanmedian(X_train,1);
+    XtrImp = X_train;
+    for j = 1:size(XtrImp,2)
+        m = isnan(XtrImp(:,j));
+        XtrImp(m,j) = med_train(j);
+    end
+
+    XteImp = X_test;
+    for j = 1:size(XteImp,2)
+        m = isnan(XteImp(:,j));
+        XteImp(m,j) = med_train(j);    % use TRAIN medians
+    end
+
+    % ----- 2) Standardize using TRAIN stats -----
+    mu_tr = mean(XtrImp,1,'omitnan');
+    sd_tr = std(XtrImp,0,1,'omitnan');
+    sd_tr(sd_tr==0) = 1;
+
+    XtrainZ = (XtrImp - mu_tr) ./ sd_tr;  % only TRAIN defines scaling
+    XtestZ  = (XteImp - mu_tr) ./ sd_tr;  % apply same to TEST
+
+    % ----- 3) PCA on TRAIN only; apply to both -----
+    % [coeff, ~, ~, ~, expl, muPCA] = pca(XtrainZ);
+    % k = find(cumsum(expl)>=95,1,'first');  % keep 95% variance
+    % 
+    % X_train_sel = (XtrainZ - muPCA) * coeff(:,1:k);
+    % X_test_sel  = (XtestZ  - muPCA) * coeff(:,1:k);
+
+    X_train_sel=XtrainZ;
+    X_test_sel=XtestZ;
+    %% --- Classifier Definitions & K-fold CV on TRAIN ---
+    K  = 5;
+    cv = cvpartition(Y_train,'KFold',K);
+
+        classifier_names = {'Logistic'};
+ %   classifier_names = {'Logistic','kNN','DecisionTree','SVM-linear','SVM-rbf'};
+    cv_accuracy = zeros(length(classifier_names),1);
+
+    for c = 1:length(classifier_names)
+        acc_fold = zeros(K,1);  % accuracy per fold
+
+        for kfold = 1:K
+            trIdx = training(cv,kfold);
+            valIdx = test(cv,kfold);
+
+            Xtr = X_train_sel(trIdx,:);
+            Ytr = Y_train(trIdx);
+            Xval = X_train_sel(valIdx,:);
+            Yval = Y_train(valIdx);
+
+            % Train classifier
+            switch classifier_names{c}
+                case 'SVM-linear'
+                    mdl = fitcsvm(Xtr, Ytr, 'KernelFunction','linear');
+                case 'SVM-rbf'
+                    mdl = fitcsvm(Xtr, Ytr, 'KernelFunction','rbf');
+                case 'kNN'
+                    mdl = fitcknn(Xtr, Ytr, 'NumNeighbors',5);
+                case 'DecisionTree'
+                    mdl = fitctree(Xtr, Ytr, ...
+                        'SplitCriterion', 'gdi', ...
+                        'MaxNumSplits', 4, ...
+                        'Surrogate', 'off');
+                case 'Logistic'
+                    mdl = fitclinear(Xtr, Ytr, 'Learner','logistic');
+            end
+
+            % Predict on validation fold
+            Ypred = predict(mdl, Xval);
+            acc_fold(kfold) = sum(Ypred == Yval) / numel(Yval);
+        end
+
+        cv_accuracy(c) = mean(acc_fold); % mean CV accuracy on TRAIN
+    end
+
+    % Display CV results for this repetition
+    cv_table = table(classifier_names', cv_accuracy, ...
+        'VariableNames', {'Classifier','CV_Accuracy'});
+    %disp(cv_table);
+
+    % Pick best classifier
+    [~, best_idx] = max(cv_accuracy);
+    best_classifier_name = classifier_names{best_idx};
+    all_best_name(r) = best_classifier_name;
+
+    % Train best classifier on FULL TRAIN set
+    switch best_classifier_name
+        case 'SVM-linear'
+            best_clf = fitcsvm(X_train_sel, Y_train, 'KernelFunction','linear');
+        case 'SVM-rbf'
+            best_clf = fitcsvm(X_train_sel, Y_train, 'KernelFunction','rbf');
+        case 'kNN'
+            best_clf = fitcknn(X_train_sel, Y_train, 'NumNeighbors',5);
+        case 'DecisionTree'
+            best_clf = fitctree(X_train_sel, Y_train);
+        case 'Logistic'
+            best_clf = fitclinear(X_train_sel, Y_train,'Learner','logistic');
+    end
+
+    % ----- Test on held-out TEST set -----
+    [y_pred_test, y_score] = predict(best_clf, X_test_sel);
+    test_acc = sum(y_pred_test == Y_test) / numel(Y_test);
+    all_test_acc(r) = test_acc;
+
+    cm = confusionmat(Y_test, y_pred_test);
+    % disp(['Best classifier in rep ', num2str(r), ': ', best_classifier_name]);
+    % disp('Confusion Matrix:');
+    % disp(cm);
+    % disp(['Test Accuracy: ', num2str(test_acc)]);
+
+    % ----- ROC & AUC for this repetition -----
+    posClass = 2;  % positive = "after"
+    cls = best_clf.ClassNames;
+    idxPos = find(ismember(cls, posClass));
+
+    if ~isempty(idxPos)
+        posScores = y_score(:, idxPos);
+        [fpRate, tpRate, ~, AUC] = perfcurve(Y_test, posScores, posClass);
+        all_test_auc(r) = AUC;
+     %   fprintf('AUC: %.4f\n', AUC);
+        % Optionally plot ROC for first repetition:
+        % if r == 1
+        %     figure; plot(fpRate, tpRate); xlabel('FPR'); ylabel('TPR');
+        %     title(sprintf('ROC (Rep %d, %s)', r, best_classifier_name));
+        % end
+    else
+        warning('Positive class not found in ClassNames in rep %d.', r);
+        all_test_auc(r) = NaN;
+    end
+end
+
+%% --- Summary over all repetitions ---
+fprintf('\n===== Summary over %d random splits (holdout %.0f%%) =====\n', ...
+    nRepeats, holdoutFrac*100);
+
+fprintf('Mean test accuracy: %.3f (SD = %.3f)\n', ...
+    mean(all_test_acc,'omitnan'), std(all_test_acc,'omitnan'));
+
+fprintf('Mean AUC:          %.3f (SD = %.3f)\n', ...
+    mean(all_test_auc,'omitnan'), std(all_test_auc,'omitnan'));
+
+disp('Best classifier frequency:');
+tabulate(all_best_name);

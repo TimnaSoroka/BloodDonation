@@ -1,0 +1,1052 @@
+% close all
+% clear
+% rng(1500)
+% Fs=25; 
+% noiseThreshold=0.05;
+% 
+% load('Holter_timings_controls.mat');
+% subjData1=subjData;
+% [subjData1(:).Group]=deal('control');
+% load('Holter_timings.mat');
+% [subjData(:).Group]=deal('Donors');
+% subjData=rmfield(subjData,{'P_Donation_Amount'});
+% 
+% subjDataAll=[subjData,subjData1];
+% subjDataAll(isnan([subjDataAll.Weight]))=[];
+%  subjDataAll([subjDataAll.Weight]>90)=[];
+% 
+%  %addpath '/Users/timnas/Documents/breathmetrics-master'
+%   addpath '/Users/timnas/Documents/projects/24h_recordings/in path'
+% 
+% variableNames = { ...
+%         'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', ...
+%         'AverageInhaleDuration', 'AverageInhalePauseDuration', 'AverageInhaleVolume', ...
+%         'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', 'AveragePeakInspiratoryFlow', ...
+%         'AverageTidalVolume', 'BreathingRate', ...
+%         'CoefficientOfVariationOfBreathVolumes', 'CoefficientOfVariationOfBreathingRate', ...
+%         'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
+%         'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', ...
+%         'DutyCycleOfExhale', 'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', ...
+%         'MinuteVentilation', 'PercentOfBrethsWithExhalePause', 'PercentOfBrethsWithInhalePause' ...
+%     };
+% 
+% Fs = 25;                 % 25 Hz sampling
+% N  = size(subjData,2);                % participants
+% beforeCell = cell(N,1);
+% duringCell = cell(N,1);
+% afterCell  = cell(N,1);
+% 
+% %Make ~15 min before (900 s), ~12 min during (variable), ~12 min after
+% N=size(subjDataAll,2);
+% norm=1;
+% 
+% for i = 1:N
+%             [before{i}, after{i},during{i},NCbefore{i}, NCafter{i},NCdonation{i}]=extract_timings_needle_walk_in_chair2(i,norm,5,subjDataAll);
+%       %      [before{i}, after{i},during{i},NCbefore{i}, NCafter{i},NCdonation{i}]=extract_timings_needle(i,norm,5,subjDataAll);
+% 
+% end
+% 
+% Groups= {subjDataAll.Group};
+% 
+% nWindows  = 10;
+% winFrac   = 0.1;     % each window spans 10% of that participant's phase
+% minWinSec = 90;      % don’t go below 45 s per window (for BM stability)
+% 
+% [winTableN, winIdxN] = window_phases_make_bins_fixedN( ...
+%     before, during, after, Groups,Fs, ...
+%     nWindows, 'frac', winFrac, minWinSec, @breathmetrics_feats);
+% 
+% results = table();
+% 
+% 
+% %% === PLOT ONLY THE DURING SLOPE (mean±SE + fixed-effect fit) ===
+% meta = {'Subject','Group','phase','win_index','t_start_s','t_end_s','phase_frac_start','phase_frac_end'};
+% 
+% featList = setdiff(string(winTableN.Properties.VariableNames), meta);
+% 
+% ps_rank=nan(size(featList));
+% ps_ttest=nan(size(featList));
+
+for f = 1:numel(featList)
+    feat = featList(f);
+
+    % Subset DURING rows and keep only needed cols
+    T = winTableN(winTableN.phase=="during", ["Subject","win_index","Group" feat]);
+    if isempty(T), continue; end
+    T.Subject = categorical(T.Subject);
+        T.Group = categorical(T.Group);
+    T.win_index = double(T.win_index);
+
+
+    subjList  = categories(T.Subject);
+nSubj     = numel(subjList);
+grpLevels = categories(T.Group);
+
+%% ----- LOOP OVER OUTCOMES -----
+results = struct();
+
+k = f;
+    ov = feat;    
+    slopes   = nan(nSubj,1);
+    subjGrp  = categorical(zeros(nSubj,1));  % one group label per subject
+    
+    % ----- 1. compute per-subject slope -----
+    for s = 1:nSubj
+        thisSubj = subjList{s};
+        idx = (T.Subject == thisSubj);
+        
+        t  = T.win_index(idx);      % time within intervention
+        y  = T.(ov)(idx);           % outcome for this subject
+        
+        % store subject's group (from any row)
+        g = unique(T.Group(idx));
+        if numel(g) ~= 1
+            warning('Subject %s has multiple group labels!', string(thisSubj));
+        end
+        subjGrp(s) = g(1);
+        
+        % need at least 2 unique time points for a slope
+        if numel(unique(t)) >= 2 && sum(~isnan(y)) >= 2
+            % Simple linear regression: y = a + b*t
+            p = polyfit(double(t), double(y), 1);  % p(1) = slope
+            slopes(s) = p(1);
+        else
+            slopes(s) = NaN;
+        end
+    end
+    
+    % Remove subjects with NaN slopes (e.g., too few points)
+    valid = ~isnan(slopes);
+    slopes  = slopes(valid);
+    subjGrp = subjGrp(valid);
+    
+
+    % Remove slope outliers within each group (example: 3*IQR rule)
+isOut = false(size(slopes));
+for gi = 1:numel(grpLevels)
+    idxg = subjGrp == grpLevels{gi};
+    isOut(idxg) = isoutlier(slopes(idxg), 'quartiles');
+end
+slopes  = slopes(~isOut);
+subjGrp = subjGrp(~isOut);
+
+
+    % ----- 2. Compare slopes between groups -----
+    g1 = grpLevels{1};
+    g2 = grpLevels{2};
+    
+    slope_g1 = slopes(subjGrp == g1);
+    slope_g2 = slopes(subjGrp == g2);
+    
+
+
+    % Cohen's d for effect size (g2 - g1)
+    m1 = mean(slope_g1, 'omitnan');
+    m2 = mean(slope_g2, 'omitnan');
+    s1 = std(slope_g1, 'omitnan');
+    s2 = std(slope_g2, 'omitnan');
+    n1 = numel(slope_g1);
+    n2 = numel(slope_g2);
+    sp = sqrt(((n1-1)*s1^2 + (n2-1)*s2^2) / (n1+n2-2));
+    cohen_d = (m2 - m1) / sp;
+    
+        % Parametric t-test
+   if swtest(slope_g1) || swtest(slope_g2)
+    % Nonparametric Mann–Whitney (ranksum)
+    [p_ranksum, ~, stats_ranksum] = ranksum(slope_g1, slope_g2);
+        ps_rank(f)=p_ranksum;
+                p_ttest=nan;
+        cohen_d=nan;
+        stats_ttest=nan;
+   if p_ranksum<0.1
+         fprintf('%s \n Group %s: mean slope = %.4g (n=%d)\n',feat, g1, m1, n1);
+    fprintf('Group %s: mean slope = %.4g (n=%d)\n', g2, m2, n2);
+        fprintf('ranksum slopes: p = %.3g, z = %.3f\n', ...
+        p_ranksum, stats_ranksum.zval);
+   end
+   else
+           [~, p_ttest, ~, stats_ttest] = ttest2(slope_g1, slope_g2);
+               ps_ttest(f)=p_ttest;
+                      p_ranksum=nan;
+       stats_ranksum=nan;
+           if p_ttest<0.1
+         fprintf('%s \n Group %s: mean slope = %.4g (n=%d)\n',feat, g1, m1, n1);
+    fprintf('Group %s: mean slope = %.4g (n=%d)\n', g2, m2, n2);
+       fprintf('t-test slopes: t(%d) = %.3f, p = %.3g, d = %.3f\n', ...
+        stats_ttest.df, stats_ttest.tstat, p_ttest, cohen_d);
+   end
+   end
+
+
+    % % Store in struct
+    results.(ov).slopes      = slopes;
+     results.(ov).subjGroup   = subjGrp;
+     results.(ov).g1          = g1;
+     results.(ov).g2          = g2;
+    results.(ov).p_ttest     = p_ttest;
+    results.(ov).stats_ttest = stats_ttest;
+    results.(ov).p_ranksum   = p_ranksum;
+    results.(ov).stats_ranksum = stats_ranksum;
+    results.(ov).cohen_d     = cohen_d;
+
+    
+ov = feat;
+    slopes  = results.(ov).slopes;
+    subjGrp = results.(ov).subjGroup;
+    
+    % basic info
+    g1 = results.(ov).g1;
+    g2 = results.(ov).g2;
+    p_t = results.(ov).p_ttest;
+    d   = results.(ov).cohen_d;
+    
+    figure; hold on;
+    
+    % --- Base boxplot ---
+    boxplot(slopes, subjGrp);
+    
+    % Thicken median lines a bit
+    set(findobj(gca,'Tag','Median'), 'LineWidth', 1.5);
+    
+    % --- Jittered individual points ---
+    groups = unique(subjGrp);
+    nG     = numel(groups);
+    xBase  = 1:nG;
+    
+    for g = 1:nG
+        idx = subjGrp == groups(g);
+        x_jitter = xBase(g) + 0.15*(rand(sum(idx),1)-0.5);
+        plot(x_jitter, slopes(idx), 'o', ...
+            'MarkerSize', 5, ...
+            'MarkerFaceColor', [0.7 0.7 0.7], ...
+            'MarkerEdgeColor', [0.3 0.3 0.3], ...
+            'LineStyle', 'none');
+    end
+    
+    % --- Overlay group means as diamonds ---
+    for g = 1:nG
+        idx = subjGrp == groups(g);
+        m   = mean(slopes(idx), 'omitnan');
+        plot(xBase(g), m, 'd', ...
+            'MarkerSize', 9, ...
+            'MarkerFaceColor', 'w', ...
+            'MarkerEdgeColor', 'k', ...
+            'LineWidth', 1.2);
+    end
+    
+    xlabel('Group');
+    ylabel('Slope during intervention');
+    title(sprintf('Per-subject slopes during intervention: %s', ov), ...
+        'Interpreter','none');
+    
+    % --- Add stats text box ---
+
+% --- Nice axis limits and centering ---
+
+% 1) Symmetric y-limits around 0 with a bit of padding
+maxAbs = max(abs(slopes), [], 'omitnan');   % largest absolute slope
+pad    = 0.1 * maxAbs;                      % 10% padding
+if maxAbs == 0
+    maxAbs = 0.01;                          % fallback if all are exactly 0
+end
+
+lim=[-maxAbs-pad, maxAbs+pad];
+ylim(lim);
+
+% 2) Center the x-axis on the two groups
+xlim([0.5 2.5]);                            % for 2 groups; for n groups: [0.5 n+0.5]
+
+% 3) Add a horizontal zero line
+yline(0, 'k--', 'LineWidth', 1);
+
+% (optional) make ticks a bit nicer
+set(gca, 'Box', 'off');   % remove top/right box if you like
+
+ statsStr = sprintf('t-test: p = %.3g, d = %.2f', p_t, d);
+    text(0.5+0.02*2, lim(2)-0.05*range(lim), statsStr, ...
+        'VerticalAlignment','top', ...
+        'BackgroundColor','w', ...
+        'EdgeColor','k');
+    
+    hold off;
+end
+
+
+    merged = nansum([ps_rank(:), ps_ttest(:)], 2);
+
+    q = mafdr(merged,'BHFDR',true);   % Benjamini–Hochberg FDR-adjusted p-values
+
+% Or threshold at alpha = 0.05:
+alpha  = 0.05;
+sigFDR = q < alpha;  
+disp(featList{sigFDR})
+% %     % Per-window group mean/SE
+% %     [uIdx, ~, gid] = unique(T.win_index);
+% %     mu = accumarray(gid, T.(feat), [], @(v) mean(v,'omitnan'));
+% %     sd = accumarray(gid, T.(feat), [], @(v) std(v,'omitnan'));
+% %     n  = accumarray(gid, T.(feat), [], @(v) sum(isfinite(v)));
+% %     se = sd ./ max(sqrt(n),1);
+% % 
+% %     [uIdx, ord] = sort(uIdx); mu = mu(ord); se = se(ord);
+% % 
+% %     % Mixed-effects (same as your function) to get fixed-effect slope
+% %     out = mixed_effects_during(winTableN, feat, 'time','linear');
+% %     fixed = out.fixed;
+% %     b0 = fixed.Estimate(strcmp(fixed.Name,'(Intercept)'));
+% %     b1 = fixed.Estimate(strcmp(fixed.Name,'win_c'));
+% %     p1 = fixed.pValue(strcmp(fixed.Name,'win_c'));
+% % 
+% %     % NOTE: mixed_effects_during centers time by mean(win_index) in DURING;
+% %     % we recompute that mean here to build the prediction on original x.
+% %     muIdx = mean(T.win_index,'omitnan');
+% % 
+% %     % Prediction line on a dense grid over DURING window indices
+% %     xg = linspace(min(uIdx), max(uIdx), 200);
+% %     yhat = b0 + b1*(xg - muIdx);
+% % 
+% %     % ---- Plot (DURING only) ----
+% %     figure('Color','w','Name',sprintf('During slope — %s',feat));
+% %     hold on;
+% %     % shaded SE
+% %     if numel(uIdx) > 1
+% %         lo = mu - se; hi = mu + se;
+% %         fill([uIdx; flipud(uIdx)], [lo; flipud(hi)], [0.4660 0.6740 0.1880], ...
+% %             'FaceAlpha',0.12,'EdgeColor','none');
+% %     end
+% %     % mean points/line
+% %     plot(uIdx, mu, 'o-', 'LineWidth', 1.8,  'Color',[0.4660 0.6740 0.1880] );%[0 0.447 0.741]
+% % 
+% %     % % fitted trend
+% %     % plot(xg, yhat, '-', 'LineWidth', 2.4);
+% %     % 
+% %     % grid on;
+% %     xlabel('Window index');
+% %     ylabel(strrep(char(feat),'_',' '), 'Interpreter','none');
+% %     title(sprintf('During: slope = %.4g, p = %.3g', b1, p1), 'Interpreter','none');
+% % 
+% %     % y-lims with a little padding
+% %     yAll = [mu(:); yhat(:)];
+% %     yAll = yAll(isfinite(yAll));
+% %     if ~isempty(yAll)
+% %         pad = 0.05*range(yAll); if pad==0, pad = 0.05*max(1e-6,abs(mean(yAll))); end
+% %         ylim([min(yAll)-pad, max(yAll)+pad]);
+% %     end
+% % end
+% % 
+function feats = breathmetrics_feats(x, Fs)
+% BREATHMETRICS_FEATS
+% Compute per-window BreathMetrics secondary features for an airflow signal x.
+% x: vector (airflow), Fs: sampling rate (Hz).
+
+    x = x(:);  % column
+
+    % Build BreathMetrics object (human airflow mode)
+    bmObj = breathmetrics(x, Fs, 'humanAirflow');
+
+    % Compute all features; sliding=1, plotting=0 (matches your snippet)
+    bmObj.estimateAllFeatures(0, 'simple', 1, 0);
+
+    % Desired secondary-feature names (same order you provided)
+    variableNames = { ...
+        'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', ...
+        'AverageInhaleDuration', 'AverageInhalePauseDuration', 'AverageInhaleVolume', ...
+        'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', 'AveragePeakInspiratoryFlow', ...
+        'AverageTidalVolume', 'BreathingRate', ...
+        'CoefficientOfVariationOfBreathVolumes', 'CoefficientOfVariationOfBreathingRate', ...
+        'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
+        'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', ...
+        'DutyCycleOfExhale', 'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', ...
+        'MinuteVentilation', 'PercentOfBrethsWithExhalePause', 'PercentOfBrethsWithInhalePause' ...
+    };
+
+    % Pull values from BreathMetrics (secondary features)
+    vals = bmObj.secondaryFeatures.values;
+
+    % Some BreathMetrics versions return a cell array, others a numeric row vector.
+    if iscell(vals)
+        vals = cellfun(@(v) double(v), vals);
+    else
+        vals = double(vals);
+    end
+
+    % Assign to struct fields (missing entries become NaN if needed)
+    feats = struct();
+    for ii = 1:numel(variableNames)
+        if ii <= numel(vals)
+            feats.(variableNames{ii}) = vals(ii);
+        else
+            feats.(variableNames{ii}) = NaN;
+        end
+    end
+end
+% % 
+% % function featureSummaries = plot_breathmetrics_by_index(winTable, varargin)
+% % % Mean ± SE per phase, x = window index, SAME y across phases.
+% % % Y-limits come from the plotted mean±SE envelopes (not raw values).
+% % % Returns:
+% % %   featureSummaries.(featureName) = table(phase, win_index, mean, se)
+% % 
+% %     % ---- params ----
+% %     p = inputParser;
+% %     addParameter(p,'clip',[0 100],@(v)isnumeric(v)&&numel(v)==2&&v(1)>=0&&v(2)<=100);
+% %     addParameter(p,'semult',1.0,@(v)isnumeric(v)&&isscalar(v)&&v>0); % 1.96 ≈ 95% CI
+% %     parse(p,varargin{:});
+% %     qclip  = p.Results.clip;
+% %     semult = p.Results.semult;
+% % 
+% %     phases = {'before','during','after'};
+% %     metaCols = {'Subject','phase','win_index','t_start_s','t_end_s','phase_frac_start','phase_frac_end'};
+% %     allCols  = string(winTable.Properties.VariableNames);
+% %     featCols = setdiff(allCols, string(metaCols));
+% % 
+% %     % stable order if present
+% %     preferredOrder = [ ...
+% %         "AverageExhaleDuration","AverageExhalePauseDuration","AverageExhaleVolume", ...
+% %         "AverageInhaleDuration","AverageInhalePauseDuration","AverageInhaleVolume", ...
+% %         "AverageInterBreathInterval","AveragePeakExpiratoryFlow","AveragePeakInspiratoryFlow", ...
+% %         "AverageTidalVolume","BreathingRate", ...
+% %         "CoefficientOfVariationOfBreathVolumes","CoefficientOfVariationOfBreathingRate", ...
+% %         "CoefficientOfVariationOfExhaleDutyCycle","CoefficientOfVariationOfExhalePauseDutyCycle", ...
+% %         "CoefficientOfVariationOfInhaleDutyCycle","CoefficientOfVariationOfInhalePauseDutyCycle", ...
+% %         "DutyCycleOfExhale","DutyCycleOfExhalePause","DutyCycleOfInhale","DutyCycleOfInhalePause", ...
+% %         "MinuteVentilation","PercentOfBreathsWithExhalePause","PercentOfBreathsWithInhalePause" ...
+% %     ];
+% %     featCols = [featCols(ismember(featCols,preferredOrder)), featCols(~ismember(featCols,preferredOrder))];
+% %     featCols = unique(featCols,'stable');
+% % 
+% %     featureSummaries = struct();
+% % 
+% %     for f = 1:numel(featCols)
+% %         feat = featCols(f);
+% %         if ~isnumeric(winTable.(feat)), continue; end
+% % 
+% %         % --- per-feature summary holder ---
+% %         groupSummary = table();
+% % 
+% %         % ---- compute per-phase mean/SE by window index ----
+% %         S = struct(); envelopes = [];
+% %         for pidx = 1:numel(phases)
+% %             ph = phases{pidx};
+% %             sub = winTable(winTable.phase==ph, ["win_index", feat]);
+% %             if isempty(sub)
+% %                 S.(ph).idx=[]; S.(ph).mu=[]; S.(ph).se=[]; 
+% %                 continue;
+% %             end
+% %             [uIdx, ~, gid] = unique(sub.win_index);
+% %             mu = accumarray(gid, sub.(feat), [], @(v) mean(v,'omitnan'));
+% %             sd = accumarray(gid, sub.(feat), [], @(v) std(v, 'omitnan'));
+% %             n  = accumarray(gid, sub.(feat), [], @(v) sum(isfinite(v)));
+% %             se = (sd ./ max(sqrt(n),1)) * semult;
+% % 
+% %             [uIdx, ord] = sort(uIdx); mu = mu(ord); se = se(ord);
+% %             S.(ph).idx = uIdx; S.(ph).mu = mu; S.(ph).se = se;
+% % 
+% %             envelopes = [envelopes; mu-se; mu+se]; %#ok<AGROW>
+% % 
+% %             % generic varnames
+% %             T = table( ...
+% %                 repmat(categorical({ph}, phases), numel(uIdx),1), ...
+% %                 uIdx, mu, se, ...
+% %                 'VariableNames', {'phase','win_index','mean','se'});
+% %             groupSummary = [groupSummary; T]; %#ok<AGROW>
+% %         end
+% % 
+% %         % store in struct
+% %         safeName = matlab.lang.makeValidName(char(feat));
+% %         featureSummaries.(safeName) = groupSummary;
+% % 
+% %         % ---- y-lims from mean±SE envelopes only ----
+% %         env = envelopes(isfinite(envelopes));
+% %         if isempty(env)
+% %             yLimFeat = [0 1];
+% %         else
+% %             if qclip(1)==0 && qclip(2)==100
+% %                 yLow = min(env); yHigh = max(env);
+% %             else
+% %                 yLow  = quantile(env, qclip(1)/100);
+% %                 yHigh = quantile(env, qclip(2)/100);
+% %             end
+% %             if ~isfinite(yLow) || ~isfinite(yHigh) || yLow==yHigh
+% %                 pad = max(1e-6, abs(yLow)*0.05);
+% %                 yLimFeat = [yLow - pad, yHigh + pad];
+% %             else
+% %                 pad = 0.03*(yHigh - yLow);
+% %                 yLimFeat = [yLow - pad, yHigh + pad];
+% %             end
+% %         end
+% % 
+% %         % ---- plot: shaded SE + mean, horizontal layout ----
+% %         figure('Color','w','Name',char(feat)); %#ok<LFIG>
+% %         tiledlayout(1,3,'TileSpacing','compact','Padding','compact');  % horizontal layout
+% % 
+% %         for pidx = 1:numel(phases)
+% %             ph = phases{pidx};
+% %             nexttile; hold on;
+% % 
+% %             idx = S.(ph).idx; mu = S.(ph).mu; se = S.(ph).se;
+% %             if ~isempty(idx)
+% %                 lo = mu - se; hi = mu + se;
+% %                 if numel(idx)==1
+% %                     idx = [idx; idx+0.001]; mu=[mu;mu]; lo=[lo;lo]; hi=[hi;hi];
+% %                 end
+% % 
+% %                 fill([idx; flipud(idx)], [lo; flipud(hi)],[0 0.447 0.741], ...
+% %                      'FaceAlpha',0.18,'EdgeColor','none');  % shaded SE
+% %                 plot(idx, mu, '-', 'LineWidth', 2, 'Color', [0 0.447 0.741]);
+% %                 xlim([min(idx) max(idx)]);
+% %             else
+% %                 axis off; title(sprintf('%s (no data)', ph),'Interpreter','none');
+% %             end
+% % 
+% %             grid on; ylim(yLimFeat);
+% %             xlabel('Window index (1..N)');
+% %             ylabel(strrep(char(feat),'_',' '), 'Interpreter','none');
+% %             title(ph,'Interpreter','none'); % phase only
+% %         end
+% % 
+% %         sgtitle(strrep(char(feat),'_',' '), 'FontWeight','bold', 'Interpreter','none');
+% %     end
+% % end
+% % 
+% % function plot_participant_breathmetrics(winTable, participantID, featureName)
+% % % Plot one participant, three phases side by side (same y-limits).
+% % %
+% % % Inputs:
+% % %   winTable      – table from window_phases_make_bins_fixedN
+% % %   participantID – numeric participant index
+% % %   featureName   – string, e.g. "BreathingRate"
+% % 
+% %     phases = {'before','during','after'};
+% %     sub = winTable(winTable.Subject==participantID,:);
+% %     if isempty(sub)
+% %         warning('No data for participant %d', participantID);
+% %         return;
+% %     end
+% % 
+% %     % === Compute unified y-limits across phases ===
+% %     yAll = sub.(featureName);
+% %     yAll = yAll(isfinite(yAll));
+% %     if isempty(yAll)
+% %         yLimFeat = [0 1];
+% %     else
+% %         pad = 0.05 * range(yAll);
+% %         if pad == 0, pad = max(1e-6, 0.05 * abs(mean(yAll))); end
+% %         yLimFeat = [min(yAll)-pad, max(yAll)+pad];
+% %     end
+% % 
+% %     % === Create figure ===
+% %     figure('Color','w','Name',sprintf('P%02d - %s',participantID,featureName));
+% %     tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
+% % 
+% %     for p = 1:numel(phases)
+% %         ph = phases{p};
+% %         nexttile; hold on;
+% %         dat = sub(sub.phase==ph,:);
+% %         if isempty(dat)
+% %             axis off; title([ph ' (no data)'],'Interpreter','none');
+% %             continue;
+% %         end
+% % 
+% %         x = dat.win_index;
+% %         y = dat.(featureName);
+% %         plot(x, y, 'o-', 'LineWidth', 1.8, 'Color', [0 0.447 0.741]);
+% %         xlim([min(x) max(x)]);
+% %         ylim(yLimFeat);
+% % 
+% %         xlabel('Window index');
+% %         ylabel(strrep(featureName,'_',' '), 'Interpreter','none');
+% %         title(ph, 'Interpreter','none');
+% %         grid on;
+% %     end
+% % 
+% %     sgtitle(sprintf('Participant %d — %s',participantID,featureName), ...
+% %         'FontWeight','bold','Interpreter','none');
+% % end
+% % 
+% % function out = mixed_effects_during(winTable, featureName, varargin)
+% % % Mixed-effects analysis of trend within the "during" phase.
+% % % time: 'linear' (default), 'cat', or 'spline' (cubic polynomial)
+% % %
+% % % Example:
+% % %   out = mixed_effects_during(winTableN, "BreathingRate", 'time','linear');
+% % 
+% %     % ---- args ----
+% %     if ischar(featureName); featureName = string(featureName); end
+% %     validateattributes(featureName, {'string','char'}, {'nonempty'});
+% % 
+% %     p = inputParser;
+% %     addParameter(p,'time','linear', @(s) any(strcmpi(s,{'linear','cat','spline'})));
+% %     addParameter(p,'centerTime',true, @(x)islogical(x)||ismember(x,[0 1]));
+% %     parse(p,varargin{:});
+% %     modeTime   = lower(p.Results.time);
+% %     centerTime = p.Results.centerTime;
+% % 
+% %     % ---- subset DURING ----
+% %     T = winTable(winTable.phase=="during", :);
+% %     if isempty(T)
+% %         error('No rows with phase=="during" in winTable.');
+% %     end
+% %     if ~ismember(featureName, string(T.Properties.VariableNames))
+% %         error('Feature "%s" not found.', featureName);
+% %     end
+% %     if ~isnumeric(T.(featureName))
+% %         error('Feature "%s" must be numeric.', featureName);
+% %     end
+% % 
+% %     % keep only needed columns (use STRING array!)
+% %     T = T(:, ["Subject","win_index", featureName]);
+% %     T.Subject = categorical(T.Subject);
+% %     T.win_index  = double(T.win_index);
+% % 
+% %     % center time (helps)
+% %     if centerTime
+% %         muIdx = mean(T.win_index,'omitnan');
+% %         T.win_c = T.win_index - muIdx;
+% %     else
+% %         T.win_c = T.win_index;
+% %     end
+% % 
+% %     % ---- choose formula ----
+% %     fname = char(featureName);  % for sprintf
+% %     switch modeTime
+% %         case 'linear'
+% %             % random intercept + random slope by participant
+% %             formula = sprintf('%s ~ 1 + win_c + (1 + win_c | Subject)', fname);
+% % 
+% %         case 'cat'
+% %             T.win_cat = categorical(T.win_index);
+% %             % random intercept per participant
+% %             formula = sprintf('%s ~ 1 + win_cat + (1 | Subject)', fname);
+% % 
+% %         case 'spline'
+% %             % cubic polynomial in centered time
+% %             T.win_c2 = T.win_c.^2;
+% %             T.win_c3 = T.win_c.^3;
+% %             formula = sprintf('%s ~ 1 + win_c + win_c2 + win_c3 + (1 + win_c | Subject)', fname);
+% %     end
+% % 
+% %     % ---- fit LME ----
+% %     lme = fitlme(T, formula); %, 'FitMethod','REML', 'DFMethod','Kenward-Roger'
+% % 
+% %     % ---- outputs ----
+% %     out = struct();
+% %     out.model      = lme;
+% %     out.anova      = anova(lme);   % fixed effect tests %,'DFMethod','Kenward-Roger'
+% %     out.fixed      = lme.Coefficients;                        % table already
+% %     out.designInfo = struct('mode',modeTime,'centered',centerTime,'formula',formula);
+% % 
+% %     % console summary
+% %     fprintf('\n=== Mixed Effects (during) — %s | time=%s ===\n', fname, modeTime);
+% %     disp(out.anova);
+% %     disp(out.fixed);
+% % end
+
+function [winTable, winIdx] = window_phases_make_bins_fixedN( ...
+        beforeCell, duringCell, afterCell, Groups, Fs, nWindows, mode, winParam, minWinSec, featureFcn)
+% WINDOW_PHASES_MAKE_BINS_FIXEDN
+% Create exactly nWindows windows per phase (before/during/after) per participant.
+% Overlap is automatic (the step is chosen so that starts are evenly spaced).
+%
+% INPUTS
+%   beforeCell, duringCell, afterCell : Nx1 cell arrays of vectors
+%   Fs        : sampling rate (Hz)
+%   nWindows  : desired number of windows per phase (e.g., 20)
+%   mode      : 'frac' or 'abs'
+%               'frac' -> winParam = winFrac in (0,1], window length = winFrac * phase length
+%               'abs'  -> winParam = winSec  (seconds), window length = winSec * Fs
+%   minWinSec : minimum window length (seconds) to keep features stable
+%   featureFcn: handle feats = featureFcn(x, Fs) (e.g., your BreathMetrics wrapper)
+%
+% OUTPUTS
+%   winTable : tidy table with per-window rows:
+%              participant, phase, win_index (1..nWindows),
+%              t_start_s, t_end_s, phase_frac_start, phase_frac_end, <features...>
+%   winIdx   : struct with before/during/after fields, each {i} -> [start end] (samples)
+
+    if nargin < 9 || isempty(featureFcn)
+        featureFcn = @(x,Fs) struct('mean',mean(x,'omitnan'),'std',std(x,'omitnan'));
+    end
+    assert(isscalar(nWindows) && nWindows>=1 && floor(nWindows)==nWindows, 'nWindows must be a positive integer.');
+    assert(ismember(mode, {'frac','abs'}), 'mode must be ''frac'' or ''abs''.');
+
+    N = numel(beforeCell);
+    phases     = {'before','during','after'};
+    phaseCells = {beforeCell, duringCell, afterCell};
+
+    minWinSamp = max(1, round(minWinSec * Fs));
+
+    allRows = {};
+    winIdx.before = cell(N,1);  winIdx.during = cell(N,1);  winIdx.after = cell(N,1);
+
+    for p = 1:numel(phases)
+        phName = phases{p};
+        series = phaseCells{p};
+
+        for i = 1:N
+            x = series{i};
+            if isempty(x) || ~isvector(x) || all(~isfinite(x))
+                winIdx.(phName){i} = zeros(0,2);  continue;
+            end
+            x = x(:);
+            finiteMask = isfinite(x);
+            if ~any(finiteMask), winIdx.(phName){i} = zeros(0,2); continue; end
+
+            firstFinite = find(finiteMask,1,'first');
+            lastFinite  = find(finiteMask,1,'last');
+            x = x(firstFinite:lastFinite);
+            L = numel(x);
+            if L < 2, winIdx.(phName){i} = zeros(0,2); continue; end
+
+            % === Window length (samples) ===
+            switch mode
+                case 'frac'
+                    winFrac = winParam;                       % e.g., 0.2
+                    assert(winFrac>0 && winFrac<=1, 'winFrac must be in (0,1].');
+                    winSamp = max(minWinSamp, round(winFrac * L));
+                case 'abs'
+                    winSec  = winParam;                       % e.g., 120
+                    assert(winSec>0, 'winSec must be >0.');
+                    winSamp = max(minWinSamp, round(winSec * Fs));
+            end
+            if winSamp > L
+                % too short to place even one window of required size
+                winIdx.(phName){i} = zeros(0,2);  continue;
+            end
+
+            % === Place exactly nWindows starts evenly between [1, L-winSamp+1] ===
+            if nWindows == 1
+                starts = round((L - winSamp)/2) + 1;  % centered
+            else
+                starts = round(linspace(1, L - winSamp + 1, nWindows));
+            end
+            ends = starts + winSamp - 1;
+
+            % Final safety clip
+            starts = max(1, min(starts, L - winSamp + 1));
+            ends   = min(ends, L);
+
+            % Store
+            winIdx.(phName){i} = [starts(:) ends(:)];
+
+            % Build rows
+            nW = numel(starts);
+            theseRows = cell(nW,1);
+            for w = 1:nW
+                seg = x(starts(w):ends(w));
+                feats = featureFcn(seg, Fs);
+
+                row.Subject       = i;
+                row.Group = categorical(Groups(i));
+                row.phase             = categorical({phName}, phases);
+                row.win_index         = w;
+                row.t_start_s         = (starts(w)-1)/Fs;
+                row.t_end_s           = (ends(w)-1)/Fs;
+                row.phase_frac_start  = (starts(w)-1) / (L-1);
+                row.phase_frac_end    = (ends(w)-1)   / (L-1);
+
+                fns = fieldnames(feats);
+                for ff = 1:numel(fns)
+                    row.(fns{ff}) = feats.(fns{ff});
+                end
+                theseRows{w} = struct2table(row);
+            end
+
+            if ~isempty(theseRows)
+                allRows{end+1} = vertcat(theseRows{:}); %#ok<AGROW>
+            end
+        end
+    end
+
+    if isempty(allRows)
+        winTable = table();
+    else
+        winTable = sortrows(vertcat(allRows{:}), {'Subject','phase','Group','win_index'});
+    end
+
+end
+    
+
+function plot_during(T, outcomeVar)
+% ----------------------------------------------------------
+% Plot intervention-only trajectory for a given outcome.
+% T must contain:
+%   T.Subject    (categorical)
+%   T.Group      (categorical)
+%   T.win_index  (numeric 1..K)
+%   T.<outcomeVar>
+%
+% Example:
+%   plot_intervention(T_dur, 'AverageExhaleVolume')
+%
+% ----------------------------------------------------------
+
+%% --- Ensure types ---
+T.Subject = categorical(T.Subject);
+T.Group   = categorical(T.Group);
+
+groups  = categories(T.Group);
+winVec  = unique(T.win_index);
+nG      = numel(groups);
+nWin    = numel(winVec);
+
+%% --- Fit LMM for ACTUAL data ---
+formula = sprintf('%s ~ win_index*Group + (win_index|Subject)', outcomeVar);
+lme = fitlme(T, formula);
+
+anovaTbl = anova(lme, 'DFMethod','Satterthwaite');
+p_time  = anovaTbl.pValue(strcmp(anovaTbl.Term,'win_index'));
+p_group = anovaTbl.pValue(strcmp(anovaTbl.Term,'Group'));
+p_int   = anovaTbl.pValue(strcmp(anovaTbl.Term,'win_index:Group'));
+
+%% --- Compute mean ± SEM per win_index × group ---
+meanMat = nan(nG, nWin);
+semMat  = nan(nG, nWin);
+
+for g = 1:nG
+    for w = 1:nWin
+        idx = T.Group == groups{g} & T.win_index == winVec(w);
+        y   = T.(outcomeVar)(idx);
+
+        if ~isempty(y)
+            meanMat(g,w) = mean(y, 'omitnan');
+            sd           = std(y,  'omitnan');
+            n            = sum(~isnan(y));
+            semMat(g,w)  = sd / sqrt(n);
+        end
+    end
+end
+
+%% --- Model predictions ---
+predTbl = table;
+predTbl.win_index = repmat(winVec, nG, 1);
+predTbl.Group     = categorical(repelem(groups, nWin));
+predTbl.Subject   = categorical(repmat("dummy", height(predTbl), 1));
+
+yhat = predict(lme, predTbl, 'Conditional', false);
+
+%% --- PLOT ---
+figure; hold on;
+
+% Colors: [blue; green]
+cols = [0 0.4470 0.7410;        % blue
+        0.4660 0.6740 0.1880];  % green
+
+markers = {'o','s'};            % marker per group
+
+hLines = gobjects(nG,1);        % to store handles for legend
+
+% --- Shaded SEM + mean line for each group ---
+for g = 1:nG
+    x = winVec(:)';                 % row
+    m = meanMat(g,:);               % mean
+    s = semMat(g,:);                % SEM
+    
+    upper = m + s;
+    lower = m - s;
+    
+    % shaded area (no legend entry)
+    fill([x fliplr(x)], [upper fliplr(lower)], cols(g,:), ...
+        'FaceAlpha', 0.12, ...
+        'EdgeColor', 'none', ...
+        'HandleVisibility', 'off');
+    
+    % mean line (this will go in the legend)
+    hLines(g) = plot(x, m, '-', ...
+        'Color', cols(g,:), ...
+        'LineWidth', 1.8, ...
+        'Marker', markers{g}, ...
+        'MarkerFaceColor', cols(g,:), ...
+        'DisplayName', char(groups{g}));   % legend label
+end
+
+% --- Model-predicted trajectories (also hidden from legend) ---
+% for g = 1:nG
+%     idxG = predTbl.Group == groups{g};
+%     plot(predTbl.win_index(idxG), yhat(idxG), ...
+%         '-', 'Color', cols(g,:), 'LineWidth', 2.4, ...
+%         'HandleVisibility', 'off');
+% end
+
+xlabel('Intervention window (win\_index)');
+ylabel(outcomeVar, 'Interpreter','none');
+title(sprintf('%s during intervention', outcomeVar), 'Interpreter','none');
+
+legend(hLines, 'Location','best');   % only mean lines appear
+
+% Stats box
+%yl = ylim; xl = xlim;
+statsStr = sprintf(['LMM:\n',...
+                    'win\\_index p = %.3g\n',...
+                    'Group p = %.3g\n',...
+                    'win\\_index×Group p = %.3g'], ...
+                    p_time, p_group, p_int);
+
+text(xl(1)+0.02*range(xl), yl(2)-0.05*range(yl), statsStr, ...
+    'VerticalAlignment','top', 'BackgroundColor','w', 'EdgeColor','k');
+
+hold off;
+end
+
+function plot_intervention_delta(T, outcomeVar)
+% ----------------------------------------------------------
+% Plot change-from-first-window (Delta) during intervention.
+%
+% T must contain at least:
+%   T.Subject      (ID, convertible to categorical)
+%   T.Group        (group label, convertible to categorical)
+%   T.win_index    (numeric window index within intervention)
+%   T.(outcomeVar) (the original outcome, e.g. 'AverageExhaleVolume')
+%
+% Example:
+%   plot_intervention_delta(T_dur, 'AverageExhaleVolume')
+%
+% This will:
+%   1) Compute Delta = outcome - outcome at first win_index per subject
+%   2) Fit LMM: Delta ~ win_index*Group + (win_index|Subject)
+%   3) Plot mean±SEM Delta per win_index × Group with shaded SEM
+%   4) Overlay model-predicted trajectories
+%   5) Show p-values for win_index, Group, interaction
+% ----------------------------------------------------------
+
+%% --- Ensure basic types & sort ---
+T.Subject = categorical(T.Subject);
+T.Group   = categorical(T.Group);
+
+% If Phase exists and you want only 'during', you can uncomment:
+% if ismember('Phase', T.Properties.VariableNames)
+%     T = T(T.Phase == 'during', :);
+% end
+
+% Sort by Subject and win_index
+T = sortrows(T, {'Subject','win_index'});
+
+groups  = categories(T.Group);
+winVec  = unique(T.win_index);
+nG      = numel(groups);
+nWin    = numel(winVec);
+
+%% --- Compute per-subject baseline (first win_index) and Delta ---
+% Find the first window per subject (minimal win_index)
+[~, firstIdx] = unique(T.Subject, 'stable');  % first occurrence per subject
+% But we want the MIN win_index per subject (robust):
+subjList = categories(T.Subject);
+baseTable = table('Size',[numel(subjList) 2], ...
+                  'VariableTypes', {'categorical','double'}, ...
+                  'VariableNames', {'Subject','BaseVal'});
+
+for s = 1:numel(subjList)
+    idxS = T.Subject == subjList{s};
+    % within this subject, get row with smallest win_index
+    [~, minIdxRel] = min(T.win_index(idxS));
+    idxRows = find(idxS);
+    row = idxRows(minIdxRel);
+    baseTable.Subject(s) = T.Subject(row);
+    baseTable.BaseVal(s) = T.(outcomeVar)(row);
+end
+
+% Attach baseline to all rows
+T = outerjoin(T, baseTable, 'Keys','Subject', 'MergeKeys', true);
+
+% Compute Delta
+deltaName = ['Delta'];
+T.([deltaName]) = T.(outcomeVar) - T.BaseVal;
+
+%% --- Fit LMM on Delta ---
+formula = sprintf('%s ~ win_index*Group + (win_index|Subject)', deltaName);
+lme = fitlme(T, formula);
+
+anovaTbl = anova(lme, 'DFMethod','Satterthwaite');
+p_time  = anovaTbl.pValue(strcmp(anovaTbl.Term,'win_index'));
+p_group = anovaTbl.pValue(strcmp(anovaTbl.Term,'Group'));
+p_int   = anovaTbl.pValue(strcmp(anovaTbl.Term,'win_index:Group'));
+
+%% --- Compute mean ± SEM of Delta per win_index × Group ---
+meanMat = nan(nG, nWin);
+semMat  = nan(nG, nWin);
+
+for g = 1:nG
+    for w = 1:nWin
+        idx = T.Group == groups{g} & T.win_index == winVec(w);
+        y   = T.(deltaName)(idx);
+        if ~isempty(y)
+            meanMat(g,w) = mean(y, 'omitnan');
+            sd           = std(y,  'omitnan');
+            n            = sum(~isnan(y));
+            semMat(g,w)  = sd / sqrt(n);
+        end
+    end
+end
+
+%% --- Model predictions on Delta ---
+predTbl = table;
+predTbl.win_index = repmat(winVec, nG, 1);
+predTbl.Group     = categorical(repelem(groups, nWin));
+predTbl.Subject   = categorical(repmat("dummy", height(predTbl), 1));
+
+yhat = predict(lme, predTbl, 'Conditional', false);
+
+%% --- PLOT ---
+figure; hold on;
+
+% Colors: [blue; green]
+cols = [0 0.4470 0.7410;        % blue
+        0.4660 0.6740 0.1880];  % green
+
+markers = {'o','s'};            % marker per group
+hLines  = gobjects(nG,1);       % handles for legend
+
+% Shaded SEM + mean line
+for g = 1:nG
+    x = winVec(:)';           % row
+    m = meanMat(g,:);         % mean
+    s = semMat(g,:);          % SEM
+
+    upper = m + s;
+    lower = m - s;
+
+    % shaded area (no legend)
+    fill([x fliplr(x)], [upper fliplr(lower)], cols(g,:), ...
+        'FaceAlpha', 0.15, ...
+        'EdgeColor', 'none', ...
+        'HandleVisibility', 'off');
+
+    % mean line (legend handle)
+    hLines(g) = plot(x, m, '-', ...
+        'Color', cols(g,:), ...
+        'LineWidth', 1.8, ...
+        'Marker', markers{g}, ...
+        'MarkerFaceColor', cols(g,:), ...
+        'DisplayName', char(groups{g}));
+end
+
+% Model-predicted trajectories (hidden from legend)
+% for g = 1:nG
+%     idxG = predTbl.Group == groups{g};
+%     plot(predTbl.win_index(idxG), yhat(idxG), ...
+%         '-', 'Color', cols(g,:), 'LineWidth', 2.4, ...
+%         'HandleVisibility', 'off');
+% end
+
+xlabel('Intervention window (win\_index)');
+% y-label: change in outcome
+ylabStr = sprintf('\\Delta %s (relative to first window)', outcomeVar);
+ylabel(ylabStr, 'Interpreter','tex');
+
+title(sprintf('\\Delta %s during intervention', outcomeVar), 'Interpreter','tex');
+legend(hLines, 'Location','best');
+% grid on;
+
+% Stats box
+%yl = ylim; xl = xlim;
+statsStr = sprintf(['LMM on \\Delta%s:\n',...
+                    'win\\_index p = %.3g\n',...
+                    'Group p = %.3g\n',...
+                    'win\\_index×Group p = %.3g'], ...
+                    outcomeVar, p_time, p_group, p_int);
+
+text(xl(1)+0.02*range(xl), yl(2)-0.05*range(yl), statsStr, ...
+    'VerticalAlignment','top', 'BackgroundColor','w', 'EdgeColor','k');
+
+hold off;
+
+end
