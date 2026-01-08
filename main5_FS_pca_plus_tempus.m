@@ -3,20 +3,19 @@
 
 close all
 clear
-rng(1)
+rng(50)
 norm=1; %1=80%, 0=50%
 IntLength=5; % 3 is the best
 Fs=25; 
 %
-% load('Holter_timings.mat');
+ load('Holter_timings.mat');
 
-load('Holter_timings.mat');
+%load('Holter_timings_controls.mat');
 
 exclude = {'027','105','069'}; %'025','105',
 allCodes = {subjData.code};            % 1xN cell array of char/string
 mask = ~ismember(allCodes, exclude);
 subjData = subjData(mask);
-
 disp_ttests=0;
 
 %%
@@ -35,8 +34,9 @@ NCafter = NCafter(keep);                            % keep only long-enough cell
 NCbefore = NCbefore(keep);  
 before = before(keep);  
 after = after(keep);  
-
 subjData=subjData(keep);
+respIDs = string({subjData.code});     % e.g. "036"
+
   noiseThreshold=0;
 
  for i=1:size(NCbefore,2)
@@ -77,43 +77,96 @@ end
 %% big differences
 
 vals_before=calculate_before_after(before);
-[vals_after,varss]=calculate_before_after(after);
+[vals_after,vars]=calculate_before_after(after);
 
 vals_before_c=calculate_before_after_catch(before);
 [vals_after_c,vars]=calculate_before_after_catch(after);
+
 %%
+
 fields2=fieldnames(vals_after);
 
-fields=[fields2;fields{1};fields{3};fields{4};fields{6}];
+fields=[fields2;fields{2};fields{5};fields{7};fields{10}];
 
 %save('Fields.mat',"fields");
-% % load('HCTSA_after_Donors.mat');
-% % TS_DataMat_a=TS_DataMat(keep,:);
-% % load('HCTSA_before_Donors.mat');
-% % 
-% % xHCTSA=[TS_DataMat(keep,:);TS_DataMat_a];
+
 % vals_before([42,63,65])=[];
 % vals_after([42,63,65])=[];
+
+X=table2array(struct2table([vals_before,vals_after]));
  X22=table2array(struct2table([vals_before_c,vals_after_c]));
 
-XX=table2array(struct2table([vals_before,vals_after]));
 
 % BmeasureResults([42,63,65])=[];
 % AmeasureResults([42,63,65])=[];
 x=table2array(struct2table([BmeasureResults,AmeasureResults]));
-%x=x(:,[1,3,4,6]);
- x=x(:,[1,4,6,9]);
-demo=[[subjData.sex];[subjData.Weight]]';
-demo=[demo;demo];
+x=x(:,[2,5,7,10]);
+% x=x(:,[1,4,6,9]);ז
+%x=x(:,[3,5,8,11]);
 
-X=[X22,XX]; %X22,x,XtrainZ
-%X=[xHCTSA,X];
+load('tempos_results.mat') %5min
+fprintf('current tempos files are for 5 minutes intervals\n')
+
+respIDs = strtrim(respIDs);
+
+% vitalIDs: 1xM cell, first entry might be empty
+vitIDs = strings(size(vitalIDs));
+for i = 1:numel(vitalIDs)
+    if isempty(vitalIDs{i})
+        vitIDs(i) = "";          % keep as empty string
+    else
+        vitIDs(i) = string(vitalIDs{i});
+    end
+end
+vitIDs = strtrim(vitIDs);
+
+% remove empty vitals IDs (and keep arrays aligned!)
+goodVit = vitIDs ~= "";
+vitIDs_clean = vitIDs(goodVit);
+
+V_before_clean = table2array(struct2table(Before(goodVit)));
+V_before_std_clean = table2array(struct2table(Before_std(goodVit)));
+V_before_std_clean(:,[2,3])=[];
+V_before_clean=[V_before_clean,V_before_std_clean];
+
+V_after_clean = table2array(struct2table(After(goodVit)));
+V_after_std_clean = table2array(struct2table(After_std(goodVit)));
+V_after_std_clean(:,[2,3])=[];
+V_after_clean=[V_after_clean,V_after_std_clean];
+
+keep2 = any(~isnan(V_before_clean), 2) | any(~isnan(V_after_clean), 2);
+
+V_before_clean = V_before_clean(keep2, :);
+V_after_clean  = V_after_clean(keep2, :);
+
+vitIDs_clean   = vitIDs_clean(keep2);
+
+[tf, loc] = ismember(respIDs,vitIDs_clean);
+%[tf, loc] = ismember(respIDs,vitIDs);
+
+% aligned matrices (Nsubj x 5)
+Vb_aligned = NaN(numel(respIDs), 8);
+Va_aligned = NaN(numel(respIDs), 8);
+
+Vb_aligned(tf,:) = V_before_clean(loc(tf),:);
+Va_aligned(tf,:) = V_after_clean(loc(tf),:);
+
+xx=[Vb_aligned;Va_aligned];
+fprintf('Vitals coverage: %d/%d subjects\n', sum(tf), numel(tf));
+
+ X=[X,X22,xx];%xx,x
+% X=[X,x];
+%X=xx;
+X=X([loc~=0,loc~=0]',:);
 Y=[ones(size(vals_before,2),1);2*ones(size(vals_after,2),1)];
+Y=Y([loc~=0,loc~=0]);
 
+subjData=subjData(loc~=0);
+
+%%
 thresh=mean([subjData.Weight],'omitmissing');
 sex_vec1=([subjData.Weight]<thresh);
 % sex_vec1=logical([subjData.sex]);
-
 % sex_vec1([42,63,65])=[];
 sex_vec=[sex_vec1,sex_vec1];
 
@@ -142,29 +195,29 @@ X_train_sel = (XtrainZ - muPCA) * coeff(:,1:k);
 X_test_sel  = (XtestZ  - muPCA) * coeff(:,1:k);
 
 %% Descriptives
-% % if disp_ttests
-% % 
-% % for v=1:size(X,2)
-% % test_values= X(Y==1,v);
-% % retest_values = X(Y==2,v);
-% %     mx = mean(test_values, 'omitnan'); sx = std(test_values, 'omitnan'); nx = numel(test_values);
-% %     my = mean(retest_values, 'omitnan'); sy = std(retest_values, 'omitnan'); ny = numel(retest_values);
-% % 
-% %     valid = ~isnan(test_values) & ~isnan(retest_values);
-% %         x = test_values(valid);
-% %         y = retest_values(valid);
-% %         [~,p,~,stats] = ttest(x, y);
-% %         % Effect size: Cohen's dz for paired (mean diff / SD diff)
-% %             df = stats.df; tval = stats.tstat;
-% % varName=fields{v};
-% %     fprintf('%s: t(%d)=%.2f, p=%.4g]\n', ...
-% %         varName, df, tval, p);
-% %     fprintf('   before: %0.3f \xB1 %0.3f (n=%d);  after: %0.3f \xB1 %0.3f (n=%d)\n', ...
-% %         mx, sx, nx, my, sy, ny);
-% % 
-% % 
-% % end  
-% % end
+if disp_ttests
+   
+for v=1:size(X,2)
+test_values= X(Y==1,v);
+retest_values = X(Y==2,v);
+    mx = mean(test_values, 'omitnan'); sx = std(test_values, 'omitnan'); nx = numel(test_values);
+    my = mean(retest_values, 'omitnan'); sy = std(retest_values, 'omitnan'); ny = numel(retest_values);
+
+    valid = ~isnan(test_values) & ~isnan(retest_values);
+        x = test_values(valid);
+        y = retest_values(valid);
+        [~,p,~,stats] = ttest(x, y);
+        % Effect size: Cohen's dz for paired (mean diff / SD diff)
+            df = stats.df; tval = stats.tstat;
+varName=fields{v};
+    fprintf('%s: t(%d)=%.2f, p=%.4g]\n', ...
+        varName, df, tval, p);
+    fprintf('   before: %0.3f \xB1 %0.3f (n=%d);  after: %0.3f \xB1 %0.3f (n=%d)\n', ...
+        mx, sx, nx, my, sy, ny);
+
+
+end  
+end
 %% FS
 % n=size(X_train,1)/2;
 % for i=1:size(X_train,2)
@@ -189,49 +242,49 @@ X_test_sel  = (XtestZ  - muPCA) * coeff(:,1:k);
 % X_test_sel  = Xtest_PC; %X_test(:, top_features_idx);
 
 %% scatter3
-% % % to_plot=0;
-% % % test_values=X(1:size(X,1)/2,:);
-% % % retest_values=X(size(X,1)/2+1:end,:);
-% % % [~,tp_value24] = ttest2(test_values, retest_values);
-% % %  [a,idx]=sort(tp_value24);
-% % %    top_features_idx=idx(1:5);
-% % % 
-% % % if to_plot
-% % % 
-% % % cond=Y_test==1;
-% % % figure('Color',[1 1 1]);
-% % % scatter3( ...
-% % %     X_test(cond, idx(1)), ...
-% % %     X_test(cond, idx(2)), ...
-% % %     X_test(cond, idx(3)), ...
-% % %     100, 'r', 'filled'); % group 1 (condition true)
-% % % hold on;
-% % % 
-% % % scatter3( ...
-% % %     X_test(~cond, idx(1)), ...
-% % %     X_test(~cond, idx(2)), ...
-% % %     X_test(~cond, idx(3)), ...
-% % %     100, 'b', 'filled'); % group 2 (condition false)
-% % % 
-% % % xlabel(fields{idx(1)},'FontSize',15);
-% % % ylabel(fields{idx(2)},'FontSize',15);
-% % % zlabel(fields{idx(3)},'FontSize',15);
-% % % legend({'No blood loss','Blood loss'});
-% % % view(45,30); % nice viewing angle
-% % % 
-% % % 
-% % % med = nanmedian(X_test,1);
-% % % Ximp = X_test;
-% % % for j = 1:size(Ximp,2), m = isnan(Ximp(:,j)); Ximp(m,j) = med(j); end
-% % % 
-% % % Xz=zscore(Ximp);
-% % % [coeff,score,~,~,expl] = pca(Xz);   % score = PCs
-% % % figure; scatter3(score(Y_test==2,1),score(Y_test==2,2),score(Y_test==2,3),100,'b','filled'); hold on
-% % % scatter3(score(Y_test==1,1),score(Y_test==1,2),score(Y_test==1,3),100,'r','filled'); grid on
-% % % xlabel(sprintf('PC1 (%.1f%%)',expl(1))); ylabel(sprintf('PC2 (%.1f%%)',expl(2))); zlabel(sprintf('PC3 (%.1f%%)',expl(3)));
-% % % legend('Blood loss','No blood loss'); 
-% % % 
-% % % end
+to_plot=0;
+test_values=X(1:size(X,1)/2,:);
+retest_values=X(size(X,1)/2+1:end,:);
+[~,tp_value24] = ttest2(test_values, retest_values);
+ [a,idx]=sort(tp_value24);
+   top_features_idx=idx(1:5);
+
+if to_plot
+
+cond=Y_test==1;
+figure('Color',[1 1 1]);
+scatter3( ...
+    X_test(cond, idx(1)), ...
+    X_test(cond, idx(2)), ...
+    X_test(cond, idx(3)), ...
+    100, 'r', 'filled'); % group 1 (condition true)
+hold on;
+
+scatter3( ...
+    X_test(~cond, idx(1)), ...
+    X_test(~cond, idx(2)), ...
+    X_test(~cond, idx(3)), ...
+    100, 'b', 'filled'); % group 2 (condition false)
+
+xlabel(fields{idx(1)},'FontSize',15);
+ylabel(fields{idx(2)},'FontSize',15);
+zlabel(fields{idx(3)},'FontSize',15);
+legend({'No blood loss','Blood loss'});
+view(45,30); % nice viewing angle
+
+
+med = nanmedian(X_test,1);
+Ximp = X_test;
+for j = 1:size(Ximp,2), m = isnan(Ximp(:,j)); Ximp(m,j) = med(j); end
+
+Xz=zscore(Ximp);
+[coeff,score,~,~,expl] = pca(Xz);   % score = PCs
+figure; scatter3(score(Y_test==2,1),score(Y_test==2,2),score(Y_test==2,3),100,'b','filled'); hold on
+scatter3(score(Y_test==1,1),score(Y_test==1,2),score(Y_test==1,3),100,'r','filled'); grid on
+xlabel(sprintf('PC1 (%.1f%%)',expl(1))); ylabel(sprintf('PC2 (%.1f%%)',expl(2))); zlabel(sprintf('PC3 (%.1f%%)',expl(3)));
+legend('Blood loss','No blood loss'); 
+
+end
 
 %% --- Prepare Data ---
 
@@ -249,7 +302,7 @@ X_test_sel  = (XtestZ  - muPCA) * coeff(:,1:k);
 K = 5;
 cv = cvpartition(Y_train,'KFold',K);
 
-classifier_names = {'Logistic'}; %87.5,77 6/45 log (pca95), pca 90 87,80,7/44, svm87,79.9/42
+classifier_names = {'Logistic'};
 %classifier_names = {'Logistic','kNN','DecisionTree','SVM-linear','SVM-rbf'};
 
 cv_accuracy = zeros(length(classifier_names),1);
@@ -354,63 +407,35 @@ axis square;
 
 
 v={subjData.Donation_Amount};
- % v{60}='367';
- % v{13}='558';
- % v{31}='498';
- % v{38}='500';
 v_num = str2double(string(v));
 sum(~isnan(v_num));
 % Keep only valid numeric entries
 subjData=subjData(sex_vec1);
 w=[subjData.Weight];
 v_num=v_num(sex_vec1);
-v_num=v_num-157;
-
 bloodVolume  = 70 .* w;
 fractionLost = v_num ./ bloodVolume;
 
 N=numel(posScores)/2;
 % Correlation between weight and model score
-% for iii=1:size(X,2)
-% [r1, p1] = corr(v_num', posScores(1:N), 'rows','complete');
-% [r2, p2] = corr(v_num', posScores(N+1:end),'rows','complete');
-% if p1<0.05
-% fprintf(['r1: ' num2str(r1) ' field:' fields{iii} ' \n'])
-% elseif p2<0.05
-% fprintf(['r2: ' num2str(r2) ' field:' fields{iii} ' \n'])
-% end
-% end
+for iii=1:size(X,2)
+[r1, p1] = corr(v_num', posScores(1:N), 'rows','complete');
+[r2, p2] = corr(v_num', posScores(N+1:end),'rows','complete');
+if p1<0.05
+fprintf(['r1: ' num2str(r1) ' field:' fields{iii} ' \n'])
+elseif p2<0.05
+fprintf(['r2: ' num2str(r2) ' field:' fields{iii} ' \n'])
+end
+end
 
-[r1, p1] = corr(fractionLost', posScores(1:N),'rows','complete');
-[r2, p2] = corr(fractionLost', posScores(N+1:end),'rows','complete');
+[r1, p1] = corr(bloodVolume', score_all(1:N), 'type', 'Spearman','rows','complete');
+[r2, p2] = corr(fractionLost', score_all(N+1:end), 'type', 'Spearman','rows','complete');
+fprintf(['r1: ' num2str(r1) ' \n'])
+fprintf(['r2: ' num2str(r2) ' \n'])
 
-%%
+plot(w', score_to_comp,'ko')
+lsline()
 
-score_after=posScores(N+1:end);
-score_before=posScores(1:N);
-
-x = fractionLost';
-y = score_after;
-
-% Spearman correlation (use only complete pairs)
-[rho, pval] = corr(x, y, 'type', 'Spearman', 'rows', 'complete');
-[r3, pval] = corr(x, y, 'rows', 'complete');
-
-figure('Color','w'); 
-plot(x, y, 'o', ...
-    'MarkerEdgeColor',[1 0.4 0.4], ...0.4 0.6 1
-    'MarkerFaceColor',[1 0.4 0.4], ...1 0.4 0.4
-    'MarkerSize',10);
-hold on;
-
-h = lsline;                 % get handle(s) to the line(s)
-set(h, 'Color','k', 'LineWidth',2);
-
-xlabel('Donation amount (total) (mL)');   % change label if needed
-ylabel('Model score (after)');    % change label if needed
-
-title(sprintf('Spearman R= %.2f, p = %.3g (n = %d)', ...
-    rho, pval, sum(~isnan(x) & ~isnan(y))));
 
 
 % function z_breath_values=calculate_1min_bin(before1,num_bins)
