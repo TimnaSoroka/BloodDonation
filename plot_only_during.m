@@ -17,7 +17,7 @@ variableNames = { ...
     };
 
 %load('/Users/timnas/Documents/BloodDonation/BloodDonation-main/Holter_timings.mat');
-load('Holter_timings_controls.mat');
+load('/Users/timnas/Documents/BloodDonation/Holter_timings_controls.mat');
 %subjData([16,25,29,38,90])=[]; %less than 10 minutes after in_chair 16,25,29,38,90
 
 % ----------------------------- EXAMPLE USAGE -----------------------------

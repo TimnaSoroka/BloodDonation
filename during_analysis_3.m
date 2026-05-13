@@ -1,71 +1,71 @@
-% close all
-% clear
-% rng(1500)
-% Fs=25; 
-% noiseThreshold=0.05;
-% 
-% load('Holter_timings_controls.mat');
-% subjData1=subjData;
-% [subjData1(:).Group]=deal('control');
-% load('Holter_timings.mat');
-% [subjData(:).Group]=deal('Donors');
-% subjData=rmfield(subjData,{'P_Donation_Amount'});
-% 
-% subjDataAll=[subjData,subjData1];
-% subjDataAll(isnan([subjDataAll.Weight]))=[];
-%  subjDataAll([subjDataAll.Weight]>90)=[];
-% 
-%  %addpath '/Users/timnas/Documents/breathmetrics-master'
-%   addpath '/Users/timnas/Documents/projects/24h_recordings/in path'
-% 
-% variableNames = { ...
-%         'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', ...
-%         'AverageInhaleDuration', 'AverageInhalePauseDuration', 'AverageInhaleVolume', ...
-%         'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', 'AveragePeakInspiratoryFlow', ...
-%         'AverageTidalVolume', 'BreathingRate', ...
-%         'CoefficientOfVariationOfBreathVolumes', 'CoefficientOfVariationOfBreathingRate', ...
-%         'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
-%         'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', ...
-%         'DutyCycleOfExhale', 'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', ...
-%         'MinuteVentilation', 'PercentOfBrethsWithExhalePause', 'PercentOfBrethsWithInhalePause' ...
-%     };
-% 
-% Fs = 25;                 % 25 Hz sampling
-% N  = size(subjData,2);                % participants
-% beforeCell = cell(N,1);
-% duringCell = cell(N,1);
-% afterCell  = cell(N,1);
-% 
-% %Make ~15 min before (900 s), ~12 min during (variable), ~12 min after
-% N=size(subjDataAll,2);
-% norm=1;
-% 
-% for i = 1:N
-%             [before{i}, after{i},during{i},NCbefore{i}, NCafter{i},NCdonation{i}]=extract_timings_needle_walk_in_chair2(i,norm,5,subjDataAll);
-%       %      [before{i}, after{i},during{i},NCbefore{i}, NCafter{i},NCdonation{i}]=extract_timings_needle(i,norm,5,subjDataAll);
-% 
-% end
-% 
-% Groups= {subjDataAll.Group};
-% 
-% nWindows  = 10;
-% winFrac   = 0.1;     % each window spans 10% of that participant's phase
-% minWinSec = 90;      % don’t go below 45 s per window (for BM stability)
-% 
-% [winTableN, winIdxN] = window_phases_make_bins_fixedN( ...
-%     before, during, after, Groups,Fs, ...
-%     nWindows, 'frac', winFrac, minWinSec, @breathmetrics_feats);
-% 
-% results = table();
-% 
-% 
-% %% === PLOT ONLY THE DURING SLOPE (mean±SE + fixed-effect fit) ===
-% meta = {'Subject','Group','phase','win_index','t_start_s','t_end_s','phase_frac_start','phase_frac_end'};
-% 
-% featList = setdiff(string(winTableN.Properties.VariableNames), meta);
-% 
-% ps_rank=nan(size(featList));
-% ps_ttest=nan(size(featList));
+close all
+clear
+rng(1500)
+Fs=25; 
+noiseThreshold=0.05;
+
+load('/Users/timnas/Documents/BloodDonation/Holter_timings_controls.mat');
+subjData1=subjData;
+[subjData1(:).Group]=deal('control');
+load('/Users/timnas/Documents/BloodDonation/Holter_timings.mat');
+[subjData(:).Group]=deal('Donors');
+subjData=rmfield(subjData,{'P_Donation_Amount'});
+
+subjDataAll=[subjData,subjData1];
+subjDataAll(isnan([subjDataAll.Weight]))=[];
+ subjDataAll([subjDataAll.Weight]>90)=[];
+
+ %addpath '/Users/timnas/Documents/breathmetrics-master'
+  addpath '/Users/timnas/Documents/projects/24h_recordings/in path'
+
+variableNames = { ...
+        'AverageExhaleDuration', 'AverageExhalePauseDuration', 'AverageExhaleVolume', ...
+        'AverageInhaleDuration', 'AverageInhalePauseDuration', 'AverageInhaleVolume', ...
+        'AverageInterBreathInterval', 'AveragePeakExpiratoryFlow', 'AveragePeakInspiratoryFlow', ...
+        'AverageTidalVolume', 'BreathingRate', ...
+        'CoefficientOfVariationOfBreathVolumes', 'CoefficientOfVariationOfBreathingRate', ...
+        'CoefficientOfVariationOfExhaleDutyCycle', 'CoefficientOfVariationOfExhalePauseDutyCycle', ...
+        'CoefficientOfVariationOfInhaleDutyCycle', 'CoefficientOfVariationOfInhalePauseDutyCycle', ...
+        'DutyCycleOfExhale', 'DutyCycleOfExhalePause', 'DutyCycleOfInhale', 'DutyCycleOfInhalePause', ...
+        'MinuteVentilation', 'PercentOfBrethsWithExhalePause', 'PercentOfBrethsWithInhalePause' ...
+    };
+
+Fs = 25;                 % 25 Hz sampling
+N  = size(subjData,2);                % participants
+beforeCell = cell(N,1);
+duringCell = cell(N,1);
+afterCell  = cell(N,1);
+
+%Make ~15 min before (900 s), ~12 min during (variable), ~12 min after
+N=size(subjDataAll,2);
+norm=1;
+
+for i = 1:N
+            [before{i}, after{i},during{i},NCbefore{i}, NCafter{i},NCdonation{i}]=extract_timings_needle_walk_in_chair2(i,norm,5,subjDataAll);
+      %      [before{i}, after{i},during{i},NCbefore{i}, NCafter{i},NCdonation{i}]=extract_timings_needle(i,norm,5,subjDataAll);
+
+end
+
+Groups= {subjDataAll.Group};
+
+nWindows  = 10;
+winFrac   = 0.1;     % each window spans 10% of that participant's phase
+minWinSec = 90;      % don’t go below 45 s per window (for BM stability)
+
+[winTableN, winIdxN] = window_phases_make_bins_fixedN( ...
+    before, during, after, Groups,Fs, ...
+    nWindows, 'frac', winFrac, minWinSec, @breathmetrics_feats);
+
+results = table();
+
+
+%% === PLOT ONLY THE DURING SLOPE (mean±SE + fixed-effect fit) ===
+ meta = {'Subject','Group','phase','win_index','t_start_s','t_end_s','phase_frac_start','phase_frac_end'};
+
+ featList = setdiff(string(winTableN.Properties.VariableNames), meta);
+
+ps_rank=nan(size(featList));
+ps_ttest=nan(size(featList));
 
 for f = 1:numel(featList)
     feat = featList(f);
